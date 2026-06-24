@@ -1,0 +1,206 @@
+     1→# Worklog: Social Media Scheduled Posting Dashboard
+     2→
+     3→Project: Dashboard for scheduled posting to Telegram, MAX, VK with calendar, bot settings, per-platform appendices, and WordPress product integration.
+     4→
+     5→---
+     6→Task ID: 1
+     7→Agent: main
+     8→Task: Design Prisma schema for scheduled posting dashboard
+     9→
+    10→Work Log:
+    11→- Analyzed user requirements: calendar, scheduled posts (TG/MAX/VK), bot connection settings, per-platform appendices, WordPress integration
+    12→- Designed schema with models: PlatformAccount, ScheduledPost, PostAppendix, WordPressSource, PostTemplate, AppendixTemplate
+    13→
+    14→Stage Summary:
+    15→- Schema covers: multi-platform accounts (telegram/max/vk), scheduled posts with status workflow, per-platform appendices (text snippets appended to posts), WordPress source config, and post templates
+    16→- SQLite-friendly (no lists in primitives)
+    17→
+    18→---
+    19→Task ID: 4
+    20→Agent: frontend-shell
+    21→Task: Build sidebar layout shell + Zustand store + React Query provider + theme provider
+    22→
+    23→Work Log:
+    24→- Read existing layout/page, package.json (deps already include @tanstack/react-query, next-themes, zustand, lucide-react), globals.css, tsconfig, eslint config, sonner & select shadcn components
+    25→- Created `src/lib/store.ts`: Zustand store with `section` (default 'dashboard'), `setSection`, `selectedPostId`, `setSelectedPostId`; persists only `section` to localStorage under 'post-manager-store' key
+    26→- Created `src/components/providers.tsx` ('use client'): QueryClientProvider with stable QueryClient via useState (staleTime 30s, retry 1) wrapping next-themes ThemeProvider (attribute="class", defaultTheme="light", enableSystem={false})
+    27→- Created `src/components/theme-toggle.tsx` ('use client'): ghost icon Button toggling light/dark with Sun/Moon icons; uses mounted guard to avoid hydration mismatch
+    28→- Created `src/components/sidebar-nav.tsx` ('use client'): dark teal gradient (from-teal-900 to-teal-950) desktop sidebar w-64 sticky h-screen + mobile top Select switcher; nav items for dashboard/calendar/posts/platforms/appendices/wordpress with Russian labels and descriptions; active state has white/10 bg + left accent bar; logo block with Share2 icon and «Пост-Менеджер» / «Telegram · MAX · VK» subtitle
+    29→- Created `src/components/app-shell.tsx` ('use client'): flex min-h-screen with SidebarNav + main (flex-1); sticky h-14 header showing current section title from store, ThemeToggle + teal «Создать пост» button (sets section to 'posts'); scrollable p-4/p-6 content container
+    30→- Updated `src/app/layout.tsx`: kept Geist fonts, set lang="ru", suppressHydrationWarning; wrapped children in <Providers><AppShell>; metadata title «Пост-Менеджер — отложенный постинг» with Russian description about Telegram/MAX/VK scheduled posting; renders both <Toaster /> (radix) and <Sonner /> toasters
+    31→- Updated `src/app/page.tsx` ('use client'): switch-based SectionRouter rendering «Раздел «...» — заглушка» per section; reads section from Zustand store
+    32→- Ran `bun run lint` — clean, no errors. Ran `bunx tsc --noEmit` — zero errors in project source (only pre-existing errors in examples/ and skills/ which are out of scope and eslint-ignored)
+    33→
+    34→Stage Summary:
+    35→- Artifacts: src/lib/store.ts, src/components/providers.tsx, src/components/theme-toggle.tsx, src/components/sidebar-nav.tsx, src/components/app-shell.tsx, src/app/layout.tsx (updated), src/app/page.tsx (updated)
+    36→- Key decisions: (1) Only `section` is persisted to localStorage — `selectedPostId` stays ephemeral; (2) Used teal-700/900/950 palette throughout to satisfy the "no indigo/blue primary" requirement; (3) "Создать пост" button uses teal-700 bg to align with sidebar brand color while staying visually distinct from default primary; (4) Mobile fallback is a compact Select dropdown in a top bar (SidebarNav renders both desktop aside and mobile bar conditionally); (5) page.tsx is intentionally a minimal placeholder switch — other agents will replace it with real section components mounted via the same store-driven routing
+    37→- The store exposes a `DashboardSection` type and the `useStore` hook, ready for other agents to consume (e.g., for selectedPostId cross-section coordination)
+    38→
+    39→---
+    40→Task ID: 3b
+    41→Agent: api-builder
+    42→Task: Build all API routes for the social posting dashboard
+    43→
+    44→Work Log:
+    45→- Read worklog + schema + shared helpers in `@/lib/social.ts`
+    46→- Created 14 Next.js App Router `route.ts` files (TypeScript, REST-style):
+    47→  - `src/app/api/platforms/route.ts` — GET (list with targets count) + POST (create, validates platform via PLATFORMS)
+    48→  - `src/app/api/platforms/[id]/route.ts` — GET (with recent targets), PUT (partial update), DELETE
+    49→  - `src/app/api/appendices/route.ts` — GET (optional `?platform=` filter) + POST
+    50→  - `src/app/api/appendices/[id]/route.ts` — GET, PUT, DELETE
+    51→  - `src/app/api/posts/route.ts` — GET (with `?status=`, `?from=`, `?to=` filters, includes targets+account, sorted desc) + POST (creates ScheduledPost + one ScheduledPostTarget per platformId, status=pending/scheduled; supports appendixMap)
+    52→  - `src/app/api/posts/[id]/route.ts` — GET, PUT (syncs targets add/remove to match platformIds; updates appendixId via appendixMap), DELETE
+    53→  - `src/app/api/posts/[id]/targets/[targetId]/route.ts` — PATCH (status/appendixId/errorMessage/resultRef/publishedAt)
+    54→  - `src/app/api/calendar/route.ts` — GET `?year=&month=` returns per-day buckets with byPlatform counts, published/scheduled/failed totals, and post summaries
+    55→  - `src/app/api/stats/route.ts` — GET dashboard overview: totalPosts, by-status counts, today/thisWeek (UTC + ISO Mon-Sun week), nextPost, byPlatform breakdown derived from targets
+    56→  - `src/app/api/wordpress/route.ts` — GET (list sources) + POST
+    57→  - `src/app/api/wordpress/[id]/route.ts` — GET, PUT, DELETE
+    58→  - `src/app/api/wordpress/[id]/products/route.ts` — GET outbound fetch to `${siteUrl}/wp-json/wp/v2/${postType}?per_page=20&_embed` with Basic auth; returns `{ products, error? }` always 200; updates lastSyncAt on success
+    59→  - `src/app/api/templates/route.ts` — GET (optional `?platform=`) + POST
+    60→  - `src/app/api/templates/[id]/route.ts` — GET, PUT, DELETE
+    61→- All routes use `await params` for dynamic segments (Next.js 16 typed as `Promise<{ id: string }>`), wrap handlers in try/catch, return NextResponse.json with proper status codes, parse JSON via `await request.json()`
+    62→- Ran `bun run lint` — clean (no errors). Ran `bunx tsc --noEmit` — no errors in any `src/app/api/**` file (remaining errors are pre-existing in `examples/` and `skills/` only)
+    63→
+    64→Stage Summary:
+    65→- 14 API route files created under `src/app/api/**`, covering platforms, appendices, posts (+targets), calendar, stats, wordpress (+external product fetch), and templates
+    66→- All CRUD + custom aggregation endpoints ready for the dashboard frontend to consume
+    67→- Uses `db` from `@/lib/db` (Prisma) and helpers from `@/lib/social.ts`
+    68→- No tests written (per instructions). No server actions used — all client-safe REST routes
+    69→
+    70→---
+    71→Task ID: 5+6
+    72→Agent: dashboard-calendar-builder
+    73→Task: Build Dashboard overview section and Calendar section
+    74→
+    75→Work Log:
+    76→- Read worklog + existing helpers (`@/lib/social.ts`, `@/lib/store.ts`), API routes (`/api/stats`, `/api/calendar`, `/api/posts`), and shadcn/ui primitives (Card, Sheet, Progress, ScrollArea, Badge, Skeleton, Button) to confirm prop shapes & export names
+    77→- Created `src/components/sections/dashboard-section.tsx` ('use client'):
+    78→  - Two React Query hooks: `useQuery(['stats'])` for `/api/stats` and `useQuery(['posts','upcoming-7d'])` for `/api/posts?status=scheduled&from=now&to=now+7d` (staleTime 30s each)
+    79→  - Top row: 4 StatCards in `grid grid-cols-2 lg:grid-cols-4 gap-4` — Запланировано (Clock, amber), Опубликовано (CheckCircle2, emerald), Ошибки (AlertTriangle, rose), Всего постов (Newspaper, teal). Each card: small icon chip top-right (rounded-lg, tinted bg), big number, label, sub-label using today/this-week counts
+    80→  - Second row: `grid lg:grid-cols-3 gap-4` — left col-span-2 «Ближайшие публикации» Card with ScrollArea (max-h-96) listing top 5 upcoming posts (each row: time (HH:mm dd.MM), title truncated, platform dot-badges using PLATFORMS hex, status badge using POST_STATUS_META). Empty state with «Создать пост» CTA. Right col-span-1 «По площадкам» Card — per-platform row with icon chip (bg = platform hex), label, `published / total` ratio, emerald Progress bar, pct + scheduled count legend
+    81→  - Third row: Today banner — teal→emerald gradient Card shown only when `stats.today.scheduled > 0`. Displays «Сегодня запланировано N постов» (with Russian pluralization via `pluralizePosts()`), next post title + HH:mm + relative time (date-fns `formatDistanceToNow` with ru locale), and platform dot row
+    82→  - Skeleton placeholders during loading (StatCardSkeleton, list skeletons, platform breakdown skeletons). Error notifications via dynamic `import('sonner')` to avoid bundling concerns and `useEffect` on `isError`
+    83→  - Clicking an upcoming post sets `selectedPostId` + navigates to 'posts' section via Zustand store (cross-section handoff ready for posts agent)
+    84→- Created `src/components/sections/calendar-section.tsx` ('use client'):
+    85→  - Month nav header: «< [LLLL yyyy ru] >» (date-fns ru locale) with prev/next icon buttons and a «Сегодня» ghost button resetting to current month. Shows total month posts count next to title
+    86→  - Legend row: platform color dots + names (Telegram/MAX/VK) and status legend (запланирован/опубликован/ошибка)
+    87→  - 7-col grid (Пн–Вс Russian weekday headers) using `startOfWeek(monthStart, { weekStartsOn: 1 })` + `endOfWeek(monthEnd)` + `eachDayOfInterval` to fill the surrounding blanks. Out-of-month days rendered with `bg-muted/30` and `text-muted-foreground/40`
+    88→  - Each DayCell: `min-h-[80px] sm:min-h-[110px]` rounded-lg border p-1.5/2 flex flex-col; today's cell has teal-400 border + ring + bold day number + small teal dot. Left border accent (3px) uses dominant platform hex (computed via `dominantPlatform(bucket)`). Body: up to 3 PostChips stacked + «+N ещё» footer. Each chip: rounded bar tinted by post status (amber/emerald/rose/orange), platform dot row always visible, title `hidden sm:inline` (truncated to 18 chars), HH:mm on the right. Footer counter «N запл. / M опуб.» shown only on sm+ when both > 0
+    89→  - Mobile responsive: chip titles hidden, only dots + time shown — `hidden sm:inline` for titles, `text-[10px] sm:text-[11px]` for chips, smaller cell min-height on mobile
+    90→  - Day cell click → opens right-side `Sheet` titled «d MMMM yyyy ru» with day post count. Sheet uses a third React Query hook `useQuery(['posts','day',dateKey], enabled: date!==null)` fetching `/api/posts?from=dayStart&to=dayEnd` (sorted asc in client) to get full post details (content, targets, etc.). Each post rendered in a DayPostCard with: time, title, status badge (with icon — CheckCircle2/AlertTriangle/Clock), platform chip row, content preview (first 120 chars, whitespace-normalized, line-clamp-3), and «Открыть в Постах» button calling `setSelectedPostId(post.id) + setSection('posts')` then closing the sheet
+    91→  - Skeleton grid (35 cells) while loading; error toast via dynamic `import('sonner')`. Calendar buckets indexed by local YYYY-MM-DD key for O(1) cell lookup (bucketsByKey memo)
+    92→- Updated `src/app/page.tsx` via MultiEdit (minimal edit only — added imports for `DashboardSection as DashboardSectionView` and `CalendarSection`, then split the switch case so `case 'dashboard'` returns `<DashboardSectionView />` and `case 'calendar'` returns `<CalendarSection />`. Left 'posts'/'platforms'/'appendices'/'wordpress' as stubs untouched so other agents can edit them in parallel without conflict)
+    93→- Verified: `bun run lint` clean. `bunx tsc --noEmit` shows no errors in `dashboard-section.tsx`, `calendar-section.tsx`, or `app/page.tsx` (only pre-existing error is in another agent's `appendices-section.tsx` line 544 which is out of my scope). Dev server log shows clean compile of `/`, plus successful 200 responses for `/api/stats`, `/api/calendar?year=2026&month=6`, and `/api/posts?status=scheduled&from=...&to=...`
+    94→
+    95→Stage Summary:
+    96→- Artifacts: src/components/sections/dashboard-section.tsx (new), src/components/sections/calendar-section.tsx (new), src/app/page.tsx (edited — minimal: imports + 2 switch cases swapped to real components)
+    97→- Key decisions: (1) Used `useQuery` with stable query keys (`['stats']`, `['posts','upcoming-7d']`, `['calendar',year,month]`, `['posts','day',dateKey]`) and 30s staleTime — section unmounts/remounts preserve cached data via React Query. (2) Sonner toasts are dynamically `import('sonner')` inside `useEffect` to keep bundle clean and avoid any SSR/hydration concerns. (3) Calendar day-cell matching uses local YYYY-MM-DD keys — bucket keys from the API are also YYYY-MM-DD (UTC) so they line up directly. (4) For the day-detail Sheet, since the calendar API returns only post summaries (no content), I issue a separate `/api/posts?from=&to=` fetch on demand (enabled only when a day is selected) to get full content for previews. (5) Russian pluralization helper `pluralizePosts(n)` covers пост/поста/постов. (6) All accent colors stay within teal/emerald/amber/rose/sky family per the brand rules — no indigo/blue anywhere. (7) Calendar is fully responsive: chip text hidden on mobile (only colored dots + time + count visible), cell heights shrink from 110px to 80px, and the day-detail Sheet uses `w-full sm:max-w-md` so it covers full width on mobile. (8) Click-to-navigate cross-section wiring: clicking an upcoming post (dashboard) or «Открыть в Постах» button (calendar day detail) calls `setSelectedPostId(id) + setSection('posts')` — ready for the posts-section agent to consume
+    98→
+    99→---
+   100→Task ID: 8+9+10
+   101→Agent: settings-builder
+   102→Task: Build Platforms, Appendices, and WordPress settings sections
+   103→
+   104→Work Log:
+   105→- Read worklog, social.ts (PLATFORMS meta with string icon names), store.ts (DashboardSection union), prisma schema, all relevant API routes (platforms, appendices, wordpress + products), shadcn ui primitives (Card, Dialog, AlertDialog, Select, Switch, Sheet, ScrollArea, ToggleGroup, Badge, Alert, etc.), globals.css (teal palette confirmed via sidebar but default primary still neutral — used explicit bg-teal-700 on primary CTAs to enforce brand)
+   106→- Created `src/components/sections/platforms-section.tsx` ('use client'):
+   107→  - ICON_MAP (Send/MessageCircle/Users) mapping platform.icon string → lucide-react components
+   108→  - Description card explaining tokens stored locally in DB
+   109→  - React Query `useQuery(['platforms'])` against `/api/platforms`, grid `md:grid-cols-2 xl:grid-cols-3`
+   110→  - AccountCard with colored top border + platform-colored icon chip (inline style with hex+1a bg, hex text), name, platform badge, post-count badge, active/inactive Switch (inline PUT mutation), masked token (first 8 chars + ••••) with eye-toggle reveal, parsed JSON `extra` shown as key-value pairs, «Редактировать» + «Удалить» buttons
+   111→  - AccountFormDialog (create/edit): platform Select (disabled in edit mode), description+hint box from PLATFORMS meta, dynamic targetLabel/tokenLabel, password Input with show/hide toggle, JSON Textarea for extra with validation, teal primary button
+   112→  - AlertDialog for delete confirmation, sonner toasts for all mutations, Skeleton loading state, empty state with CTA, error state with retry
+   113→  - React Query mutations: create, update, toggle active, delete — all invalidate `['platforms']`
+   114→- Created `src/components/sections/appendices-section.tsx` ('use client'):
+   115→  - Description card explaining приписки concept
+   116→  - ToggleGroup (outline variant) filter: Все / Telegram / MAX / ВКонтакте / Все площадки — FilterKey type 'all'|'telegram'|'max'|'vk'|'platform-all' with colored icons. 'all' → no query param (returns everything); 'platform-all' → `?platform=all` (filters items with platform='all'); others → `?platform=<id>`
+   117→  - React Query keyed on `['appendices', filter]` so refetch happens when filter changes
+   118→  - AppendixCard: name + platform-colored badge with icon + PositionBadge («До текста»/«После текста» with sky/emerald accents) + optional category badge, body in `whitespace-pre-wrap max-h-40 overflow-y-auto` block, Edit/Delete buttons
+   119→  - AppendixFormDialog: platform Select (telegram/max/vk/all), name, body Textarea rows=5, position Select (После текста/До текста), optional category Input, live preview at bottom using `composePostText('Пример текста поста...', body, position)` from social.ts
+   120→  - AlertDialog delete confirm, sonner toasts, loading/empty/error states
+   121→- Created `src/components/sections/wordpress-section.tsx` ('use client'):
+   122→  - Description card noting full custom-field integration is a future stage
+   123→  - React Query `['wordpress']` for sources list, grid `md:grid-cols-2 xl:grid-cols-3`
+   124→  - SourceCard: name + siteUrl as external link with Globe/ExternalLink icons + postType badge + lastSyncAt badge + active Switch, username + masked appPassword (16 dots) with show/hide, customFields as chips/badges, three buttons: «Проверить связь / Загрузить товары», «Редактировать», «Удалить»
+   125→  - CustomFieldsEditor: Input + «Добавить» button (Enter key also adds), chips with X-removable buttons — used in both create and edit dialog
+   126→  - SourceFormDialog: name, siteUrl, username, postType (default 'product'), appPassword (Input type=password with eye toggle), CustomFieldsEditor chips UI
+   127→  - ProductList (inside Sheet, right-side, max-w-xl, ScrollArea max-h-96): React Query `['wordpress', id, 'products']` against `/api/wordpress/[id]/products`, shows products with featuredImage thumbnail (img size-12 rounded, fallback ImageOff icon), title (links to product, new tab), slug, excerpt (line-clamp-2), first 4 meta key-values as monospace badges (filtered by source.customFields if any), Alert variant=destructive when API returns `error` field, Skeleton loading, empty state
+   128→  - AlertDialog delete confirm, sonner toasts, all mutations invalidate `['wordpress']`
+   129→- Wired into `src/app/page.tsx` (Edit tool, only touched platforms/appendices/wordpress cases + added imports; dashboard/calendar were already wired by previous agent, posts case was wired by a parallel agent between my edits — file now has all 6 cases routed to real components)
+   130→- Ran `bun run lint` — initially 1 warning (unused eslint-disable directive on `<img>` since project config already disables `@next/next/no-img-element`); removed the directive → lint clean
+   131→- Ran `bunx tsc --noEmit` — initially 1 error in appendices-section.tsx: ICON_MAP and FILTER_OPTIONS icon prop typed as `React.ComponentType<{ className?: string }>` but I passed `style={...}` for color-coded filter icons. Fixed by extending both types to `React.ComponentType<{ className?: string; style?: React.CSSProperties }>`. After fix: zero TS errors in src/ (only pre-existing errors in examples/ and skills/ which are eslint-ignored)
+   132→- Verified dev server (port 3000, NOT restarted) was serving the new sections: dev.log shows successful `GET /api/platforms 200`, `GET /api/appendices 200` requests, compile times <200ms, no 500s or compile errors
+   133→
+   134→Stage Summary:
+   135→- Artifacts produced:
+   136→  - `src/components/sections/platforms-section.tsx` (PlatformsSection default + named export) — bot connection CRUD with masked tokens, per-platform accent colors, JSON extra editor, active toggle
+   137→  - `src/components/sections/appendices-section.tsx` (AppendicesSection default + named export) — appendix CRUD with platform filter tabs, live compose preview, position/category badges
+   138→  - `src/components/sections/wordpress-section.tsx` (WordPressSection default + named export) — WP source CRUD with chip-based customFields editor, product browser Sheet with featured images + meta + error Alert
+   139→  - `src/app/page.tsx` (edited) — platforms/appendices/wordpress cases now render the real components; imports added; dashboard/calendar/posts cases untouched
+   140→- All three sections use React Query (already-provisioned QueryClient in providers.tsx), sonner toasts (already mounted in layout.tsx), shadcn/ui primitives, teal brand color on primary CTAs (no indigo/blue), Russian labels throughout, masked tokens/passwords with reveal toggles, mobile-first responsive grids, empty/error/loading states
+   141→- Lint clean, TypeScript clean (in src/), dev server serving all three new sections successfully
+   142→
+   143→---
+   144→Task ID: 7
+   145→Agent: posts-builder
+   146→Task: Build the Posts section (list + filters + create/edit dialog)
+   147→
+   148→Work Log:
+   149→- Read worklog + existing infrastructure: `@/lib/social.ts` (PLATFORMS, POST_STATUS_META, TARGET_STATUS_META, composePostText, safeParse), `@/lib/store.ts` (useStore + selectedPostId/setSelectedPostId), `@/components/ui/*` (Dialog, AlertDialog, Popover, Calendar, Select, Tabs, Checkbox, Tooltip, Badge, Card, Button, Input, Textarea, Label, Skeleton), `@/app/api/posts/**` (GET list, POST, GET/PUT/DELETE [id], PATCH [id]/targets/[targetId]), `@/app/api/platforms` + `@/app/api/appendices` shapes, prisma schema (ScheduledPost + ScheduledPostTarget + AppendixTemplate), `date-fns` (format, formatDistanceToNow, isValid, locale/ru) and `sonner` available
+   150→- Created `src/components/sections/post-helpers.tsx` ('use client'): shared types (PostTarget, Post, PostForEdit, PlatformAccount, AppendixTemplate), PlatformIcon component mapping Platform → lucide icon (Send/MessageCircle/Users), STATUS_HEX map (post.status → accent bar hex), TARGET_DOT_HEX map (target.status → dot hex), defaultScheduled() (now+1h rounded to :00), bubbleClass() per-platform preview bubble classes, platformAccent(), asPosition() coercer
+   151→- Created `src/components/sections/post-editor-dialog.tsx` ('use client'): controlled Dialog (props: open, onOpenChange, post?) with full create/edit form. Uses useState for fields (title, content, selectedAccountIds, appendixMap, date, timeStr, wordpressRef, mediaText). useEffect on `open` toggles to prefill from `post` (edit) or defaults (create). React Query fetches `/api/platforms` (filtered to active) and `/api/appendices`. Form fields: title Input, content Textarea (rows=8) with live char count, Площадки checkbox grid (one row per active account: checkbox + colored platform icon + hex dot + account name + targetId hint; checked rows get teal border), Приписки section (per selected account: Select listing appendices for that platform OR 'all' PLUS «Без приписки» option, with selected appendix body preview truncated to 80 chars below), Превью tabbed preview (one tab per selected account, each shows composePostText(content, appendixBody, appendixPosition) rendered in platform-colored bubble — sky/emerald/rose; tabs remount via key when selection changes), Дата и время (Popover+Calendar for date + Input type=time for time, combined into ISO on submit, defaults to now+1h:00), WordPress товар optional Input (slug/id) with hint, Медиа-URLs optional Textarea (split by newline to string[]). Submit validates required fields (title, content, ≥1 platform, valid date/time) with toast.error on validation failure. POST or PUT to `/api/posts` (or `/api/posts/[id]`). On success: toast.success, `queryClient.invalidateQueries({queryKey:['posts']})`, close dialog. DialogContent uses `sm:max-w-3xl max-h-[90vh] overflow-y-auto`. Footer: «Отмена» + «Сохранить»/«Создать» (teal-700 brand). appendixMap sent as Record<accountId, ''|appendixId> so user can both set AND clear appendices per platform
+   152→- Created `src/components/sections/posts-section.tsx` ('use client'): main posts screen. Header row: search Input (with Search icon, filters by title+content client-side), status filter Select (Все/Запланированы/Опубликованы/Ошибки/Черновики; «Ошибки» matches status=failed OR partial), teal «+ Новый пост» Button (opens create dialog). List: React Query `useQuery({queryKey:['posts'], queryFn: fetch /api/posts})`, displayed as responsive grid (1 col mobile, 2 cols lg) of Cards. Each PostCard: left accent bar (inline-styled backgroundColor from STATUS_HEX by status), top row (title font-medium truncate + status Badge with POST_STATUS_META bg+text), middle row (format scheduledAt 'd MMM yyyy, HH:mm' ru locale + formatDistanceToNow ru addSuffix in muted), platform chips (per target: tinted rounded-full chip with platform icon + colored status dot + account name; Tooltip wraps each chip — failed targets show errorMessage in tooltip, others show target status label), content preview (truncate ~120 chars, line-clamp-2 muted), WP ref + media count badges if set. Footer: «Редактировать» (opens edit dialog), «Удалить» (opens AlertDialog confirm → DELETE → invalidate + toast), «Повторить» button visible only if any target.status==='failed' (PATCH each failed target to {status:'pending', errorMessage:null} via Promise.all, then invalidate + toast.success). Empty states: initial-empty Card (icon + «Постов пока нет» + «Создать первый пост» button), filtered-empty Card (icon + «Ничего не найдено по текущим фильтрам» + «Сбросить фильтры»). Loading: 4 PostCardSkeleton in grid. Error: Card with AlertTriangle + retry button calling refetch. useEffect on mount clears store.selectedPostId (per task instructions). useMutation for delete. Teal-700 used for all primary CTAs (no indigo/blue)
+   153→- Wired into `src/app/page.tsx`: added `import { PostsSection } from '@/components/sections/posts-section'` (alphabetically slotted between calendar and platforms imports). Changed ONLY the `case 'posts':` branch from the stub `<div>Раздел «Посты» — заглушка</div>` to `<PostsSection />`. Did NOT touch the dashboard/calendar/platforms/appendices/wordpress cases (already wired by other agents)
+   154→- Ran `bun run lint` → clean (zero output). Ran `bunx tsc --noEmit` → zero errors in any posts-section/post-editor-dialog/post-helpers/page.tsx files (only pre-existing error in `appendices-section.tsx` line 544 from another agent's work, out of scope). Verified dev server (port 3000) still healthy: `curl /api/posts` returns 200 + seeded post data, root page returns 200, no errors in dev.log
+   155→- All Russian labels throughout. date-fns with ru locale for all date formatting (scheduled time + relative time). sonner toasts for all feedback. Platform hex colors used for chip accents/borders/dots (sky/emerald/rose). No indigo/blue anywhere — teal-700 brand primary on «Новый пост», «Создать первый пост», dialog «Сохранить/Создать» buttons (mirrors AppShell «Создать пост» button styling)
+   156→
+   157→Stage Summary:
+   158→- Artifacts produced:
+   159→  - `src/components/sections/post-helpers.tsx` (NEW): shared types + PlatformIcon + STATUS_HEX/TARGET_DOT_HEX + defaultScheduled + bubbleClass + platformAccent + asPosition
+   160→  - `src/components/sections/post-editor-dialog.tsx` (NEW): full create/edit Dialog with title, content (char count), platform multi-select (checkboxes), per-platform appendix Selects with body preview, per-platform tabbed preview bubbles (composed text via composePostText), Calendar+time picker, WordPress ref input, media URLs textarea, validation + toast + React Query invalidate on save
+   161→  - `src/components/sections/posts-section.tsx` (NEW): posts list with search + status filter + create button, responsive card grid (left status accent bar, title + status badge, scheduled time + relative, platform chips with status dots + error tooltips, content preview, WP/media badges, Редактировать/Удалить/Повторить actions), skeleton loading, empty states (initial + filtered), error state with retry
+   162→  - `src/app/page.tsx` (EDITED): added PostsSection import + replaced posts case stub with `<PostsSection />` (other cases untouched)
+   163→- Key decisions: (1) Put shared types/helpers in a separate `post-helpers.tsx` to avoid a circular import between posts-section ↔ post-editor-dialog; (2) Used inline-styled `backgroundColor` for the card status accent bar and platform chips (since POST_STATUS_META has Tailwind class names but no hex — derived my own STATUS_HEX/TARGET_DOT_HEX maps matching the color tokens); (3) appendixMap sent with empty-string values for "no appendix" selections (not filtered out) so the PUT route's `appendixMap[accountId] ?? existing` logic correctly clears previously-set appendices — empty string falls through `??` to set "" in DB, which renders as «Без приписки» on reload; (4) Tabs in the preview use a `key={selectedAccounts.map(a=>a.id).join('-')}` to force remount when selection changes, so defaultValue resets cleanly; (5) Skipped react-hook-form/zod in favor of controlled useState for simplicity per task hint; (6) PostEditorDialog is always mounted (open prop toggles visibility) and resets/prefills state via useEffect on `open`+`post` — this preserves form inputs while typing but resets on close→open cycle; (7) Retry button uses Promise.all over failed targets' PATCH endpoints then invalidates the posts query and toasts the count; (8) Cleared store.selectedPostId on PostsSection mount to satisfy the task note without coupling to other sections
+   164→
+   165→---
+   166→Task ID: 11
+   167→Agent: main
+   168→Task: Final verification — lint, dev server health, Agent Browser end-to-end testing
+   169→
+   170→Work Log:
+   171→- Ran `bun run lint` → clean (0 errors)
+   172→- Verified dev server running on port 3000, all API routes returning 200
+   173→- Used Agent Browser to verify all 6 sections render correctly:
+   174→  - Dashboard: stat cards (6 scheduled / 1 published / 0 failed / 8 total), upcoming posts list, by-platform breakdown, today banner
+   175→  - Calendar: month grid with per-day post chips, platform color dots, counts, day-detail Sheet opens with 3 posts for selected day
+   176→  - Posts: card list with search + status filter + platform chips + status dots; create dialog with title/content/platform checkboxes/per-platform appendix selectors/preview bubbles/date-time picker
+   177→  - Platforms: 3 bot connection cards (Telegram/MAX/VK) with masked tokens, active toggles, color-coded icons
+   178→  - Appendices: per-platform snippet cards with filter, position badges, create dialog with live preview
+   179→  - WordPress: source card with site URL, custom field chips, masked password, product browser
+   180→- Tested golden path #1: created a new post ("Тестовый пост — осенняя коллекция") via dialog → POST 200 → post appeared in Posts list AND on Calendar day 21
+   181→- Tested golden path #2: created a new приписка ("Telegram — скидка выходного дня" with WEEKEND promo + Промо category) → POST 200 → appeared in Appendices grid
+   182→- Tested calendar day-click → day detail Sheet shows all 3 posts with "Открыть в Постах" buttons
+   183→- Tested mobile responsive (390x844): sidebar collapses to dropdown selector, cards stack, no horizontal overflow
+   184→- Checked dev.log: no errors/warnings (except initial EADDRINUSE before restart)
+   185→- VLM cross-verified every screenshot: all sections confirmed polished, no rendering issues
+   186→
+   187→Stage Summary:
+   188→- All 6 dashboard sections fully functional and verified in-browser
+   189→- Post creation + per-platform appendix selection + calendar day detail all working end-to-end
+   190→- Mobile responsive confirmed
+   191→- Lint clean, no runtime errors
+   192→- Project is COMPLETE and ready for the user to view in the Preview Panel
+   193→
+   194→---
+   195→Task ID: 12-17 (planning)
+   196→Agent: main
+   197→Task: Redesign homepage to 3-column feed layout + realistic TG/MAX/VK post previews with photo collages
+   198→
+   199→Work Log:
+   200→- Analyzed new reference screenshot: 3-column layout (narrow left nav, wide CENTER feed of post previews with photos, narrow RIGHT minimalist calendar + analytics)
+   201→- Researched Telegram/MAX/VK album photo layouts by count (1=single, 2=side-by-side, 3=1-tall+2-stacked, 4=2x2, 5=2-top+3-bottom, 6=3x2, 7+=3x2 with +N overlay)
+   202→- Plan: build reusable PhotoCollage + SocialPostPreview components (foundation), update seed with real photo URLs, then redesign Dashboard (3-col) + upgrade editor preview in parallel
+   203→
+   204→Stage Summary:
+   205→- Building PhotoCollage + SocialPostPreview as shared foundation, then delegating Dashboard redesign + editor preview upgrade to parallel agents
+   206→

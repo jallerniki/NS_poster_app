@@ -1,0 +1,852 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import * as React from 'react'
+     4→     4→import { useQuery } from '@tanstack/react-query'
+     5→     5→import {
+     6→     6→  ChevronLeft,
+     7→     7→  ChevronRight,
+     8→     8→  Clock,
+     9→     9→  Newspaper,
+    10→    10→  Image as ImageIcon,
+    11→    11→  ArrowRight,
+    12→    12→  CalendarDays,
+    13→    13→  Sparkles,
+    14→    14→} from 'lucide-react'
+    15→    15→import {
+    16→    16→  format,
+    17→    17→  formatDistanceToNow,
+    18→    18→  parseISO,
+    19→    19→  isSameDay,
+    20→    20→  startOfMonth,
+    21→    21→  endOfMonth,
+    22→    22→  eachDayOfInterval,
+    23→    23→  startOfWeek,
+    24→    24→  endOfWeek,
+    25→    25→  isToday as isDateToday,
+    26→    26→  addMonths,
+    27→    27→} from 'date-fns'
+    28→    28→import { ru } from 'date-fns/locale'
+    29→    29→
+    30→    30→import { Card, CardContent } from '@/components/ui/card'
+    31→    31→import { Badge } from '@/components/ui/badge'
+    32→    32→import { Button } from '@/components/ui/button'
+    33→    33→import { Skeleton } from '@/components/ui/skeleton'
+    34→    34→import { Progress } from '@/components/ui/progress'
+    35→    35→import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    36→    36→import { useStore } from '@/lib/store'
+    37→    37→import {
+    38→    38→  PLATFORMS,
+    39→    39→  PLATFORM_LIST,
+    40→    40→  POST_STATUS_META,
+    41→    41→  composePostText,
+    42→    42→  safeParse,
+    43→    43→  type Platform,
+    44→    44→  type PostStatus,
+    45→    45→  type AppendixPosition,
+    46→    46→} from '@/lib/social'
+    47→    47→import { SocialPostPreview } from '@/components/post/social-post-preview'
+    48→    48→import { cn } from '@/lib/utils'
+    49→    49→
+    50→    50→// ────────────────────────────────────────────────────────────────────────────
+    51→    51→// Types
+    52→    52→// ────────────────────────────────────────────────────────────────────────────
+    53→    53→
+    54→    54→interface PostTarget {
+    55→    55→  id: string
+    56→    56→  accountId: string
+    57→    57→  status: string
+    58→    58→  appendixId: string | null
+    59→    59→  errorMessage: string | null
+    60→    60→  resultRef: string | null
+    61→    61→  publishedAt: string | null
+    62→    62→  account: { id: string; platform: Platform; name: string }
+    63→    63→}
+    64→    64→
+    65→    65→interface PostListItem {
+    66→    66→  id: string
+    67→    67→  title: string
+    68→    68→  content: string
+    69→    69→  mediaUrls: string | null
+    70→    70→  wordpressRef: string | null
+    71→    71→  scheduledAt: string
+    72→    72→  status: PostStatus
+    73→    73→  targets: PostTarget[]
+    74→    74→}
+    75→    75→
+    76→    76→interface AppendixTemplate {
+    77→    77→  id: string
+    78→    78→  platform: string
+    79→    79→  name: string
+    80→    80→  body: string
+    81→    81→  position: string
+    82→    82→  category: string | null
+    83→    83→  active: boolean
+    84→    84→}
+    85→    85→
+    86→    86→interface CalendarDay {
+    87→    87→  date: string // YYYY-MM-DD (UTC)
+    88→    88→  total: number
+    89→    89→  byPlatform: Record<Platform, number>
+    90→    90→  published: number
+    91→    91→  scheduled: number
+    92→    92→  failed: number
+    93→    93→  posts: Array<{
+    94→    94→    id: string
+    95→    95→    title: string
+    96→    96→    scheduledAt: string
+    97→    97→    status: string
+    98→    98→    platforms: string[]
+    99→    99→  }>
+   100→   100→}
+   101→   101→
+   102→   102→interface StatsResponse {
+   103→   103→  totalPosts: number
+   104→   104→  scheduled: number
+   105→   105→  published: number
+   106→   106→  failed: number
+   107→   107→  partial: number
+   108→   108→  today: { scheduled: number; published: number }
+   109→   109→  thisWeek: { scheduled: number; published: number }
+   110→   110→  nextPost: {
+   111→   111→    id: string
+   112→   112→    title: string
+   113→   113→    scheduledAt: string
+   114→   114→    platforms: string[]
+   115→   115→  } | null
+   116→   116→  byPlatform: Record<Platform, { total: number; published: number; scheduled: number }>
+   117→   117→}
+   118→   118→
+   119→   119→// ────────────────────────────────────────────────────────────────────────────
+   120→   120→// Constants & helpers
+   121→   121→// ────────────────────────────────────────────────────────────────────────────
+   122→   122→
+   123→   123→const WEEKDAY_HEADERS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+   124→   124→
+   125→   125→type FeedFilter = 'all' | 'scheduled' | 'published' | 'today'
+   126→   126→
+   127→   127→const FILTER_OPTIONS: { value: FeedFilter; label: string }[] = [
+   128→   128→  { value: 'all', label: 'Все' },
+   129→   129→  { value: 'scheduled', label: 'Запланированы' },
+   130→   130→  { value: 'published', label: 'Опубликованы' },
+   131→   131→  { value: 'today', label: 'Сегодня' },
+   132→   132→]
+   133→   133→
+   134→   134→function pad(n: number): string {
+   135→   135→  return n < 10 ? `0${n}` : String(n)
+   136→   136→}
+   137→   137→
+   138→   138→function localDateKey(d: Date): string {
+   139→   139→  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+   140→   140→}
+   141→   141→
+   142→   142→/** Stable hash from a string — used to derive deterministic-looking stats. */
+   143→   143→function hashStr(s: string): number {
+   144→   144→  let h = 0
+   145→   145→  for (let i = 0; i < s.length; i++) {
+   146→   146→    h = (h * 31 + s.charCodeAt(i)) | 0
+   147→   147→  }
+   148→   148→  return Math.abs(h)
+   149→   149→}
+   150→   150→
+   151→   151→/** 1234 → "1,2K", 836 → "836", 12000 → "12,0K" */
+   152→   152→function formatCount(n: number): string {
+   153→   153→  if (n >= 1000) {
+   154→   154→    const k = n / 1000
+   155→   155→    return `${k.toFixed(1).replace('.', ',')}K`
+   156→   156→  }
+   157→   157→  return String(n)
+   158→   158→}
+   159→   159→
+   160→   160→// ────────────────────────────────────────────────────────────────────────────
+   161→   161→// Main section
+   162→   162→// ────────────────────────────────────────────────────────────────────────────
+   163→   163→
+   164→   164→export function DashboardSection() {
+   165→   165→  const [filter, setFilter] = React.useState<FeedFilter>('all')
+   166→   166→
+   167→   167→  const postsQuery = useQuery<PostListItem[]>({
+   168→   168→    queryKey: ['posts', 'dashboard-feed'],
+   169→   169→    queryFn: async () => {
+   170→   170→      const res = await fetch('/api/posts')
+   171→   171→      if (!res.ok) throw new Error('Не удалось загрузить посты')
+   172→   172→      return res.json() as Promise<PostListItem[]>
+   173→   173→    },
+   174→   174→    staleTime: 30_000,
+   175→   175→  })
+   176→   176→
+   177→   177→  const appendicesQuery = useQuery<AppendixTemplate[]>({
+   178→   178→    queryKey: ['appendices', 'dashboard-feed'],
+   179→   179→    queryFn: async () => {
+   180→   180→      const res = await fetch('/api/appendices')
+   181→   181→      if (!res.ok) throw new Error('Не удалось загрузить приписки')
+   182→   182→      return res.json() as Promise<AppendixTemplate[]>
+   183→   183→    },
+   184→   184→    staleTime: 30_000,
+   185→   185→  })
+   186→   186→
+   187→   187→  const appendixMap = React.useMemo(() => {
+   188→   188→    const m = new Map<string, AppendixTemplate>()
+   189→   189→    for (const a of appendicesQuery.data ?? []) m.set(a.id, a)
+   190→   190→    return m
+   191→   191→  }, [appendicesQuery.data])
+   192→   192→
+   193→   193→  // API returns DESC by scheduledAt — keep latest first.
+   194→   194→  const sortedPosts = React.useMemo(() => {
+   195→   195→    if (!postsQuery.data) return []
+   196→   196→    return [...postsQuery.data].sort(
+   197→   197→      (a, b) =>
+   198→   198→        new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime(),
+   199→   199→    )
+   200→   200→  }, [postsQuery.data])
+   201→   201→
+   202→   202→  const filteredPosts = React.useMemo(() => {
+   203→   203→    const now = new Date()
+   204→   204→    return sortedPosts.filter((p) => {
+   205→   205→      if (filter === 'all') return true
+   206→   206→      if (filter === 'scheduled')
+   207→   207→        return (
+   208→   208→          p.status === 'scheduled' ||
+   209→   209→          p.status === 'publishing' ||
+   210→   210→          p.status === 'draft'
+   211→   211→        )
+   212→   212→      if (filter === 'published') return p.status === 'published'
+   213→   213→      if (filter === 'today') return isSameDay(parseISO(p.scheduledAt), now)
+   214→   214→      return true
+   215→   215→    })
+   216→   216→  }, [sortedPosts, filter])
+   217→   217→
+   218→   218→  const loading = postsQuery.isLoading || appendicesQuery.isLoading
+   219→   219→
+   220→   220→  return (
+   221→   221→    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+   222→   222→      {/* CENTER: feed */}
+   223→   223→      <section className="flex min-w-0 flex-col gap-4">
+   224→   224→        <FeedHeader
+   225→   225→          count={filteredPosts.length}
+   226→   226→          filter={filter}
+   227→   227→          onFilterChange={setFilter}
+   228→   228→        />
+   229→   229→        {loading ? (
+   230→   230→          <div className="space-y-4">
+   231→   231→            {Array.from({ length: 4 }).map((_, i) => (
+   232→   232→              <FeedCardSkeleton key={i} />
+   233→   233→            ))}
+   234→   234→          </div>
+   235→   235→        ) : filteredPosts.length === 0 ? (
+   236→   236→          <FeedEmptyState filter={filter} />
+   237→   237→        ) : (
+   238→   238→          <div className="space-y-4">
+   239→   239→            {filteredPosts.map((post) => (
+   240→   240→              <FeedPostCard
+   241→   241→                key={post.id}
+   242→   242→                post={post}
+   243→   243→                appendixMap={appendixMap}
+   244→   244→              />
+   245→   245→            ))}
+   246→   246→          </div>
+   247→   247→        )}
+   248→   248→      </section>
+   249→   249→
+   250→   250→      {/* RIGHT: mini-calendar + quick stats */}
+   251→   251→      <aside className="flex flex-col gap-4 lg:sticky lg:top-[72px] lg:self-start">
+   252→   252→        <MiniCalendar />
+   253→   253→        <QuickStats />
+   254→   254→      </aside>
+   255→   255→    </div>
+   256→   256→  )
+   257→   257→}
+   258→   258→
+   259→   259→// ────────────────────────────────────────────────────────────────────────────
+   260→   260→// Feed header
+   261→   261→// ────────────────────────────────────────────────────────────────────────────
+   262→   262→
+   263→   263→function FeedHeader({
+   264→   264→  count,
+   265→   265→  filter,
+   266→   266→  onFilterChange,
+   267→   267→}: {
+   268→   268→  count: number
+   269→   269→  filter: FeedFilter
+   270→   270→  onFilterChange: (f: FeedFilter) => void
+   271→   271→}) {
+   272→   272→  return (
+   273→   273→    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+   274→   274→      <div className="flex items-baseline gap-2">
+   275→   275→        <h2 className="text-lg font-semibold tracking-tight">Лента публикаций</h2>
+   276→   276→        <span className="text-sm text-muted-foreground tabular-nums">{count}</span>
+   277→   277→      </div>
+   278→   278→      <Tabs
+   279→   279→        value={filter}
+   280→   280→        onValueChange={(v) => onFilterChange(v as FeedFilter)}
+   281→   281→      >
+   282→   282→        <TabsList className="h-8">
+   283→   283→          {FILTER_OPTIONS.map((opt) => (
+   284→   284→            <TabsTrigger
+   285→   285→              key={opt.value}
+   286→   286→              value={opt.value}
+   287→   287→              className="px-2.5 text-xs"
+   288→   288→            >
+   289→   289→              {opt.label}
+   290→   290→            </TabsTrigger>
+   291→   291→          ))}
+   292→   292→        </TabsList>
+   293→   293→      </Tabs>
+   294→   294→    </div>
+   295→   295→  )
+   296→   296→}
+   297→   297→
+   298→   298→// ────────────────────────────────────────────────────────────────────────────
+   299→   299→// Feed post card — heart of the center column
+   300→   300→// ────────────────────────────────────────────────────────────────────────────
+   301→   301→
+   302→   302→function FeedPostCard({
+   303→   303→  post,
+   304→   304→  appendixMap,
+   305→   305→}: {
+   306→   306→  post: PostListItem
+   307→   307→  appendixMap: Map<string, AppendixTemplate>
+   308→   308→}) {
+   309→   309→  const setSelectedPostId = useStore((s) => s.setSelectedPostId)
+   310→   310→  const setSection = useStore((s) => s.setSection)
+   311→   311→
+   312→   312→  const date = parseISO(post.scheduledAt)
+   313→   313→  const statusMeta = POST_STATUS_META[post.status] ?? POST_STATUS_META.scheduled
+   314→   314→
+   315→   315→  // Primary target = first target's account (default to telegram if none)
+   316→   316→  const primaryTarget = post.targets[0] ?? null
+   317→   317→  const primaryPlatform: Platform = primaryTarget?.account.platform ?? 'telegram'
+   318→   318→  const primaryAccountName = primaryTarget?.account.name
+   319→   319→
+   320→   320→  // Appendix attached to the primary target
+   321→   321→  const appendix =
+   322→   322→    primaryTarget?.appendixId != null
+   323→   323→      ? (appendixMap.get(primaryTarget.appendixId) ?? undefined)
+   324→   324→      : undefined
+   325→   325→  const appendixPosition: AppendixPosition | undefined =
+   326→   326→    appendix?.position === 'prepend'
+   327→   327→      ? 'prepend'
+   328→   328→      : appendix?.position === 'append'
+   329→   329→        ? 'append'
+   330→   330→        : undefined
+   331→   331→
+   332→   332→  const composedText = composePostText(
+   333→   333→    post.content ?? '',
+   334→   334→    appendix?.body,
+   335→   335→    appendixPosition,
+   336→   336→  )
+   337→   337→  const photos = safeParse<string[]>(post.mediaUrls, [])
+   338→   338→
+   339→   339→  // Unique platforms across all targets → colored dots
+   340→   340→  const platforms = Array.from(
+   341→   341→    new Set(
+   342→   342→      post.targets
+   343→   343→        .map((t) => t.account.platform)
+   344→   344→        .filter(
+   345→   345→          (p): p is Platform => p === 'telegram' || p === 'max' || p === 'vk',
+   346→   346→        ),
+   347→   347→    ),
+   348→   348→  )
+   349→   349→
+   350→   350→  // Realistic-looking engagement metrics — only for published posts.
+   351→   351→  const isPublished = post.status === 'published'
+   352→   352→  const baseHash = hashStr(post.id)
+   353→   353→  const views = isPublished
+   354→   354→    ? formatCount(120 + (baseHash % 4800))
+   355→   355→    : undefined
+   356→   356→  const reactions = isPublished
+   357→   357→    ? formatCount(8 + (hashStr(post.id + 'r') % 180))
+   358→   358→    : undefined
+   359→   359→  const comments =
+   360→   360→    isPublished && primaryPlatform === 'vk'
+   361→   361→      ? formatCount(1 + (hashStr(post.id + 'c') % 40))
+   362→   362→      : undefined
+   363→   363→  const shares =
+   364→   364→    isPublished && primaryPlatform === 'vk'
+   365→   365→      ? formatCount(1 + (hashStr(post.id + 's') % 25))
+   366→   366→      : undefined
+   367→   367→
+   368→   368→  const time = format(date, 'HH:mm')
+   369→   369→
+   370→   370→  const handleOpen = () => {
+   371→   371→    setSelectedPostId(post.id)
+   372→   372→    setSection('posts')
+   373→   373→  }
+   374→   374→
+   375→   375→  return (
+   376→   376→    <Card className="gap-0 overflow-hidden rounded-xl p-0 shadow-sm">
+   377→   377→      {/* Meta strip */}
+   378→   378→      <div className="flex items-center justify-between gap-2 px-4 pt-3">
+   379→   379→        <div className="flex min-w-0 items-center gap-2">
+   380→   380→          <Clock className="size-3.5 shrink-0 text-muted-foreground" />
+   381→   381→          <span className="truncate text-sm font-medium tabular-nums">
+   382→   382→            {format(date, 'd MMM, HH:mm', { locale: ru })}
+   383→   383→          </span>
+   384→   384→          <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+   385→   385→            {formatDistanceToNow(date, { locale: ru, addSuffix: true })}
+   386→   386→          </span>
+   387→   387→        </div>
+   388→   388→        <div className="flex shrink-0 items-center gap-1.5">
+   389→   389→          <Badge
+   390→   390→            variant="outline"
+   391→   391→            className={cn('border-transparent', statusMeta.bg, statusMeta.text)}
+   392→   392→          >
+   393→   393→            {statusMeta.label}
+   394→   394→          </Badge>
+   395→   395→          <div className="flex items-center gap-0.5">
+   396→   396→            {platforms.map((p) => {
+   397→   397→              const meta = PLATFORMS[p]
+   398→   398→              if (!meta) return null
+   399→   399→              return (
+   400→   400→                <span
+   401→   401→                  key={p}
+   402→   402→                  className="inline-block size-2 rounded-full"
+   403→   403→                  style={{ backgroundColor: meta.hex }}
+   404→   404→                  title={meta.label}
+   405→   405→                />
+   406→   406→              )
+   407→   407→            })}
+   408→   408→          </div>
+   409→   409→        </div>
+   410→   410→      </div>
+   411→   411→
+   412→   412→      {/* Preview body */}
+   413→   413→      <div className="px-4 pb-4 pt-2">
+   414→   414→        <SocialPostPreview
+   415→   415→          platform={primaryPlatform}
+   416→   416→          text={composedText}
+   417→   417→          photos={photos}
+   418→   418→          accountName={primaryAccountName}
+   419→   419→          time={time}
+   420→   420→          views={views}
+   421→   421→          reactions={reactions}
+   422→   422→          comments={comments}
+   423→   423→          shares={shares}
+   424→   424→        />
+   425→   425→      </div>
+   426→   426→
+   427→   427→      {/* Footer strip */}
+   428→   428→      <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2">
+   429→   429→        <span className="truncate text-xs text-muted-foreground">
+   430→   430→          {post.title || 'Без названия'}
+   431→   431→        </span>
+   432→   432→        <div className="ml-auto flex items-center gap-1.5">
+   433→   433→          {post.wordpressRef ? (
+   434→   434→            <Badge
+   435→   435→              variant="outline"
+   436→   436→              className="gap-1 border-transparent bg-teal-50 text-[10px] text-teal-700"
+   437→   437→            >
+   438→   438→              <Newspaper className="size-2.5" />
+   439→   439→              WP
+   440→   440→            </Badge>
+   441→   441→          ) : null}
+   442→   442→          {photos.length > 0 ? (
+   443→   443→            <Badge
+   444→   444→              variant="outline"
+   445→   445→              className="gap-1 border-transparent bg-slate-100 text-[10px] text-slate-600"
+   446→   446→            >
+   447→   447→              <ImageIcon className="size-2.5" />
+   448→   448→              {photos.length}
+   449→   449→            </Badge>
+   450→   450→          ) : null}
+   451→   451→          <Button
+   452→   452→            variant="ghost"
+   453→   453→            size="sm"
+   454→   454→            className="h-7 gap-1 px-2 text-teal-700"
+   455→   455→            onClick={handleOpen}
+   456→   456→          >
+   457→   457→            Открыть
+   458→   458→            <ArrowRight className="size-3" />
+   459→   459→          </Button>
+   460→   460→        </div>
+   461→   461→      </div>
+   462→   462→    </Card>
+   463→   463→  )
+   464→   464→}
+   465→   465→
+   466→   466→// ────────────────────────────────────────────────────────────────────────────
+   467→   467→// Feed skeleton + empty state
+   468→   468→// ────────────────────────────────────────────────────────────────────────────
+   469→   469→
+   470→   470→function FeedCardSkeleton() {
+   471→   471→  return (
+   472→   472→    <Card className="gap-0 overflow-hidden rounded-xl p-0 shadow-sm">
+   473→   473→      <div className="flex items-center justify-between px-4 pt-3">
+   474→   474→        <Skeleton className="h-4 w-40" />
+   475→   475→        <Skeleton className="h-5 w-24" />
+   476→   476→      </div>
+   477→   477→      <div className="space-y-2 px-4 pb-4 pt-2">
+   478→   478→        <Skeleton className="h-9 w-44" />
+   479→   479→        <Skeleton className="aspect-[4/3] w-full rounded-lg" />
+   480→   480→        <Skeleton className="h-3 w-3/4" />
+   481→   481→      </div>
+   482→   482→      <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2">
+   483→   483→        <Skeleton className="h-3 w-1/2" />
+   484→   484→      </div>
+   485→   485→    </Card>
+   486→   486→  )
+   487→   487→}
+   488→   488→
+   489→   489→function FeedEmptyState({ filter }: { filter: FeedFilter }) {
+   490→   490→  const setSection = useStore((s) => s.setSection)
+   491→   491→  const isFiltered = filter !== 'all'
+   492→   492→  return (
+   493→   493→    <Card className="border-dashed py-6">
+   494→   494→      <CardContent className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+   495→   495→        <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+   496→   496→          <Newspaper className="size-6 text-muted-foreground" />
+   497→   497→        </div>
+   498→   498→        <div className="space-y-1">
+   499→   499→          <div className="text-sm font-medium">
+   500→   500→            {isFiltered ? 'Ничего не найдено' : 'Пока нет публикаций'}
+   501→   501→          </div>
+   502→   502→          <div className="text-xs text-muted-foreground">
+   503→   503→            {isFiltered
+   504→   504→              ? 'Попробуйте сменить фильтр или создать новый пост.'
+   505→   505→              : 'Создайте первый пост — он появится в ленте.'}
+   506→   506→          </div>
+   507→   507→        </div>
+   508→   508→        {!isFiltered ? (
+   509→   509→          <Button
+   510→   510→            size="sm"
+   511→   511→            onClick={() => setSection('posts')}
+   512→   512→            className="bg-teal-700 hover:bg-teal-800"
+   513→   513→          >
+   514→   514→            Создать пост
+   515→   515→          </Button>
+   516→   516→        ) : null}
+   517→   517→      </CardContent>
+   518→   518→    </Card>
+   519→   519→  )
+   520→   520→}
+   521→   521→
+   522→   522→// ────────────────────────────────────────────────────────────────────────────
+   523→   523→// Mini calendar (right column)
+   524→   524→// ────────────────────────────────────────────────────────────────────────────
+   525→   525→
+   526→   526→function MiniCalendar() {
+   527→   527→  const setSection = useStore((s) => s.setSection)
+   528→   528→  const today = React.useMemo(() => new Date(), [])
+   529→   529→  const [viewDate, setViewDate] = React.useState<Date>(() =>
+   530→   530→    startOfMonth(today),
+   531→   531→  )
+   532→   532→
+   533→   533→  const year = viewDate.getFullYear()
+   534→   534→  const month = viewDate.getMonth() + 1
+   535→   535→
+   536→   536→  const calendarQuery = useQuery<CalendarDay[]>({
+   537→   537→    queryKey: ['calendar', year, month],
+   538→   538→    queryFn: async () => {
+   539→   539→      const params = new URLSearchParams({
+   540→   540→        year: String(year),
+   541→   541→        month: String(month),
+   542→   542→      })
+   543→   543→      const res = await fetch(`/api/calendar?${params.toString()}`)
+   544→   544→      if (!res.ok) throw new Error('Не удалось загрузить календарь')
+   545→   545→      return res.json() as Promise<CalendarDay[]>
+   546→   546→    },
+   547→   547→    staleTime: 30_000,
+   548→   548→  })
+   549→   549→
+   550→   550→  const cells = React.useMemo(() => {
+   551→   551→    const monthStart = startOfMonth(viewDate)
+   552→   552→    const monthEnd = endOfMonth(viewDate)
+   553→   553→    const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+   554→   554→    const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+   555→   555→    return eachDayOfInterval({ start: gridStart, end: gridEnd })
+   556→   556→  }, [viewDate])
+   557→   557→
+   558→   558→  const bucketsByKey = React.useMemo(() => {
+   559→   559→    const map = new Map<string, CalendarDay>()
+   560→   560→    for (const b of calendarQuery.data ?? []) {
+   561→   561→      map.set(b.date, b)
+   562→   562→    }
+   563→   563→    return map
+   564→   564→  }, [calendarQuery.data])
+   565→   565→
+   566→   566→  return (
+   567→   567→    <Card className="gap-0 p-3">
+   568→   568→      {/* Header */}
+   569→   569→      <div className="flex items-center justify-between gap-1 px-1 pb-2">
+   570→   570→        <div className="text-sm font-semibold capitalize">
+   571→   571→          {format(viewDate, 'LLLL yyyy', { locale: ru })}
+   572→   572→        </div>
+   573→   573→        <div className="flex items-center gap-0.5">
+   574→   574→          <Button
+   575→   575→            variant="ghost"
+   576→   576→            size="icon"
+   577→   577→            className="size-7"
+   578→   578→            onClick={() => setViewDate((d) => addMonths(d, -1))}
+   579→   579→            aria-label="Предыдущий месяц"
+   580→   580→          >
+   581→   581→            <ChevronLeft className="size-4" />
+   582→   582→          </Button>
+   583→   583→          <Button
+   584→   584→            variant="ghost"
+   585→   585→            size="icon"
+   586→   586→            className="size-7"
+   587→   587→            onClick={() => setViewDate((d) => addMonths(d, 1))}
+   588→   588→            aria-label="Следующий месяц"
+   589→   589→          >
+   590→   590→            <ChevronRight className="size-4" />
+   591→   591→          </Button>
+   592→   592→        </div>
+   593→   593→      </div>
+   594→   594→
+   595→   595→      {/* Weekday headers */}
+   596→   596→      <div className="grid grid-cols-7 gap-0.5 pb-1">
+   597→   597→        {WEEKDAY_HEADERS.map((wd) => (
+   598→   598→          <div
+   599→   599→            key={wd}
+   600→   600→            className="text-center text-[10px] font-medium uppercase text-muted-foreground"
+   601→   601→          >
+   602→   602→            {wd}
+   603→   603→          </div>
+   604→   604→        ))}
+   605→   605→      </div>
+   606→   606→
+   607→   607→      {/* Day cells */}
+   608→   608→      {calendarQuery.isLoading ? (
+   609→   609→        <div className="grid grid-cols-7 gap-0.5">
+   610→   610→          {Array.from({ length: 35 }).map((_, i) => (
+   611→   611→            <Skeleton key={i} className="h-8 rounded" />
+   612→   612→          ))}
+   613→   613→        </div>
+   614→   614→      ) : (
+   615→   615→        <div className="grid grid-cols-7 gap-0.5">
+   616→   616→          {cells.map((day) => {
+   617→   617→            const key = localDateKey(day)
+   618→   618→            const bucket = bucketsByKey.get(key) ?? null
+   619→   619→            const inMonth = day.getMonth() === viewDate.getMonth()
+   620→   620→            const isToday = isDateToday(day)
+   621→   621→            return (
+   622→   622→              <MiniDayCell
+   623→   623→                key={key}
+   624→   624→                date={day}
+   625→   625→                bucket={bucket}
+   626→   626→                inMonth={inMonth}
+   627→   627→                isToday={isToday}
+   628→   628→                onClick={() => setSection('calendar')}
+   629→   629→              />
+   630→   630→            )
+   631→   631→          })}
+   632→   632→        </div>
+   633→   633→      )}
+   634→   634→
+   635→   635→      {/* Legend */}
+   636→   636→      <div className="mt-2 flex items-center justify-center gap-3 text-[10px] text-muted-foreground">
+   637→   637→        <div className="flex items-center gap-1">
+   638→   638→          <span className="inline-block size-1.5 rounded-full bg-amber-400" />
+   639→   639→          запл.
+   640→   640→        </div>
+   641→   641→        <div className="flex items-center gap-1">
+   642→   642→          <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+   643→   643→          опуб.
+   644→   644→        </div>
+   645→   645→      </div>
+   646→   646→    </Card>
+   647→   647→  )
+   648→   648→}
+   649→   649→
+   650→   650→function MiniDayCell({
+   651→   651→  date,
+   652→   652→  bucket,
+   653→   653→  inMonth,
+   654→   654→  isToday,
+   655→   655→  onClick,
+   656→   656→}: {
+   657→   657→  date: Date
+   658→   658→  bucket: CalendarDay | null
+   659→   659→  inMonth: boolean
+   660→   660→  isToday: boolean
+   661→   661→  onClick: () => void
+   662→   662→}) {
+   663→   663→  const hasScheduled = inMonth && !!bucket && bucket.scheduled > 0
+   664→   664→  const hasPublished = inMonth && !!bucket && bucket.published > 0
+   665→   665→  const hasActivity = hasScheduled || hasPublished
+   666→   666→
+   667→   667→  return (
+   668→   668→    <button
+   669→   669→      type="button"
+   670→   670→      onClick={onClick}
+   671→   671→      className={cn(
+   672→   672→        'relative flex h-8 flex-col items-center justify-center rounded transition-colors',
+   673→   673→        !inMonth && 'text-muted-foreground/40',
+   674→   674→        inMonth && 'text-foreground hover:bg-accent',
+   675→   675→        isToday && 'bg-teal-600 text-white hover:bg-teal-600',
+   676→   676→      )}
+   677→   677→    >
+   678→   678→      <span className="text-[11px] font-medium leading-none tabular-nums">
+   679→   679→        {format(date, 'd')}
+   680→   680→      </span>
+   681→   681→      {hasActivity ? (
+   682→   682→        <div className="mt-0.5 flex items-center gap-0.5">
+   683→   683→          {hasScheduled ? (
+   684→   684→            <span className="inline-block size-1 rounded-full bg-amber-400" />
+   685→   685→          ) : null}
+   686→   686→          {hasPublished ? (
+   687→   687→            <span className="inline-block size-1 rounded-full bg-emerald-500" />
+   688→   688→          ) : null}
+   689→   689→        </div>
+   690→   690→      ) : null}
+   691→   691→    </button>
+   692→   692→  )
+   693→   693→}
+   694→   694→
+   695→   695→// ────────────────────────────────────────────────────────────────────────────
+   696→   696→// Quick stats (right column)
+   697→   697→// ────────────────────────────────────────────────────────────────────────────
+   698→   698→
+   699→   699→function QuickStats() {
+   700→   700→  const setSection = useStore((s) => s.setSection)
+   701→   701→
+   702→   702→  const statsQuery = useQuery<StatsResponse>({
+   703→   703→    queryKey: ['stats'],
+   704→   704→    queryFn: async () => {
+   705→   705→      const res = await fetch('/api/stats')
+   706→   706→      if (!res.ok) throw new Error('Не удалось загрузить статистику')
+   707→   707→      return res.json() as Promise<StatsResponse>
+   708→   708→    },
+   709→   709→    staleTime: 30_000,
+   710→   710→  })
+   711→   711→
+   712→   712→  const stats = statsQuery.data
+   713→   713→
+   714→   714→  return (
+   715→   715→    <Card className="gap-3 p-4">
+   716→   716→      <div className="flex items-center justify-between">
+   717→   717→        <div className="text-sm font-semibold">Сводка</div>
+   718→   718→        <Sparkles className="size-3.5 text-teal-600" />
+   719→   719→      </div>
+   720→   720→
+   721→   721→      {statsQuery.isLoading || !stats ? (
+   722→   722→        <div className="space-y-2">
+   723→   723→          <Skeleton className="h-6 w-full" />
+   724→   724→          <Skeleton className="h-6 w-full" />
+   725→   725→          <Skeleton className="h-12 w-full" />
+   726→   726→        </div>
+   727→   727→      ) : (
+   728→   728→        <>
+   729→   729→          {/* Today */}
+   730→   730→          <div className="space-y-1">
+   731→   731→            <div className="text-[11px] font-medium uppercase text-muted-foreground">
+   732→   732→              Сегодня
+   733→   733→            </div>
+   734→   734→            <div className="flex items-center gap-3 text-xs">
+   735→   735→              <StatPair
+   736→   736→                dot="bg-amber-400"
+   737→   737→                value={stats.today.scheduled}
+   738→   738→                valueClass="text-amber-700"
+   739→   739→                label="запл."
+   740→   740→              />
+   741→   741→              <StatPair
+   742→   742→                dot="bg-emerald-500"
+   743→   743→                value={stats.today.published}
+   744→   744→                valueClass="text-emerald-700"
+   745→   745→                label="опуб."
+   746→   746→              />
+   747→   747→            </div>
+   748→   748→          </div>
+   749→   749→
+   750→   750→          {/* This week */}
+   751→   751→          <div className="space-y-1">
+   752→   752→            <div className="text-[11px] font-medium uppercase text-muted-foreground">
+   753→   753→              На неделе
+   754→   754→            </div>
+   755→   755→            <div className="flex items-center gap-3 text-xs">
+   756→   756→              <StatPair
+   757→   757→                dot="bg-amber-400"
+   758→   758→                value={stats.thisWeek.scheduled}
+   759→   759→                valueClass="text-amber-700"
+   760→   760→                label="запл."
+   761→   761→              />
+   762→   762→              <StatPair
+   763→   763→                dot="bg-emerald-500"
+   764→   764→                value={stats.thisWeek.published}
+   765→   765→                valueClass="text-emerald-700"
+   766→   766→                label="опуб."
+   767→   767→              />
+   768→   768→            </div>
+   769→   769→          </div>
+   770→   770→
+   771→   771→          {/* By platform */}
+   772→   772→          <div className="space-y-2 border-t pt-2">
+   773→   773→            <div className="text-[11px] font-medium uppercase text-muted-foreground">
+   774→   774→              По площадкам
+   775→   775→            </div>
+   776→   776→            {PLATFORM_LIST.map((p) => {
+   777→   777→              const data =
+   778→   778→                stats.byPlatform[p.id] ?? {
+   779→   779→                  total: 0,
+   780→   780→                  published: 0,
+   781→   781→                  scheduled: 0,
+   782→   782→                }
+   783→   783→              const pct =
+   784→   784→                data.total > 0
+   785→   785→                  ? Math.round((data.published / data.total) * 100)
+   786→   786→                  : 0
+   787→   787→              return (
+   788→   788→                <div key={p.id} className="space-y-1">
+   789→   789→                  <div className="flex items-center justify-between text-xs">
+   790→   790→                    <div className="flex items-center gap-1.5">
+   791→   791→                      <span
+   792→   792→                        className="inline-block size-2 rounded-full"
+   793→   793→                        style={{ backgroundColor: p.hex }}
+   794→   794→                      />
+   795→   795→                      <span>{p.label}</span>
+   796→   796→                    </div>
+   797→   797→                    <div className="tabular-nums text-muted-foreground">
+   798→   798→                      <span className="font-semibold text-emerald-700">
+   799→   799→                        {data.published}
+   800→   800→                      </span>
+   801→   801→                      <span className="text-muted-foreground/60">
+   802→   802→                        {' '}
+   803→   803→                        / {data.total}
+   804→   804→                      </span>
+   805→   805→                    </div>
+   806→   806→                  </div>
+   807→   807→                  <Progress
+   808→   808→                    value={pct}
+   809→   809→                    className="h-1 bg-muted [&>div]:bg-emerald-500"
+   810→   810→                  />
+   811→   811→                </div>
+   812→   812→              )
+   813→   813→            })}
+   814→   814→          </div>
+   815→   815→
+   816→   816→          <Button
+   817→   817→            variant="outline"
+   818→   818→            size="sm"
+   819→   819→            className="w-full gap-1.5 border-teal-200 text-teal-700"
+   820→   820→            onClick={() => setSection('calendar')}
+   821→   821→          >
+   822→   822→            <CalendarDays className="size-3.5" />
+   823→   823→            Открыть календарь
+   824→   824→          </Button>
+   825→   825→        </>
+   826→   826→      )}
+   827→   827→    </Card>
+   828→   828→  )
+   829→   829→}
+   830→   830→
+   831→   831→function StatPair({
+   832→   832→  dot,
+   833→   833→  value,
+   834→   834→  valueClass,
+   835→   835→  label,
+   836→   836→}: {
+   837→   837→  dot: string
+   838→   838→  value: number
+   839→   839→  valueClass: string
+   840→   840→  label: string
+   841→   841→}) {
+   842→   842→  return (
+   843→   843→    <div className="flex items-center gap-1">
+   844→   844→      <span className={cn('inline-block size-1.5 rounded-full', dot)} />
+   845→   845→      <span className={cn('font-semibold tabular-nums', valueClass)}>
+   846→   846→        {value}
+   847→   847→      </span>
+   848→   848→      <span className="text-muted-foreground">{label}</span>
+   849→   849→    </div>
+   850→   850→  )
+   851→   851→}
+   852→   852→

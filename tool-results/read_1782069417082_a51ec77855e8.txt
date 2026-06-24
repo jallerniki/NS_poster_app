@@ -1,0 +1,930 @@
+     1→'use client'
+     2→
+     3→import * as React from 'react'
+     4→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     5→import { toast } from 'sonner'
+     6→import {
+     7→  Eye,
+     8→  EyeOff,
+     9→  ExternalLink,
+    10→  Pencil,
+    11→  Plus,
+    12→  Trash2,
+    13→  X,
+    14→  RefreshCw,
+    15→  Globe,
+    16→  KeyRound,
+    17→  User,
+    18→  ShoppingBag,
+    19→  ImageOff,
+    20→  Settings2,
+    21→} from 'lucide-react'
+    22→
+    23→import { safeParse } from '@/lib/social'
+    24→
+    25→import {
+    26→  Card,
+    27→  CardContent,
+    28→  CardDescription,
+    29→  CardFooter,
+    30→  CardHeader,
+    31→  CardTitle,
+    32→} from '@/components/ui/card'
+    33→import { Button } from '@/components/ui/button'
+    34→import { Input } from '@/components/ui/input'
+    35→import { Label } from '@/components/ui/label'
+    36→import { Badge } from '@/components/ui/badge'
+    37→import { Switch } from '@/components/ui/switch'
+    38→import { Skeleton } from '@/components/ui/skeleton'
+    39→import { ScrollArea } from '@/components/ui/scroll-area'
+    40→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    41→import {
+    42→  Sheet,
+    43→  SheetContent,
+    44→  SheetDescription,
+    45→  SheetHeader,
+    46→  SheetTitle,
+    47→} from '@/components/ui/sheet'
+    48→import {
+    49→  Dialog,
+    50→  DialogContent,
+    51→  DialogDescription,
+    52→  DialogFooter,
+    53→  DialogHeader,
+    54→  DialogTitle,
+    55→} from '@/components/ui/dialog'
+    56→import {
+    57→  AlertDialog,
+    58→  AlertDialogAction,
+    59→  AlertDialogCancel,
+    60→  AlertDialogContent,
+    61→  AlertDialogDescription,
+    62→  AlertDialogFooter,
+    63→  AlertDialogHeader,
+    64→  AlertDialogTitle,
+    65→} from '@/components/ui/alert-dialog'
+    66→
+    67→interface WordPressSource {
+    68→  id: string
+    69→  name: string
+    70→  siteUrl: string
+    71→  username: string
+    72→  appPassword: string
+    73→  customFields: string | null
+    74→  postType: string | null
+    75→  active: boolean
+    76→  lastSyncAt: string | null
+    77→  createdAt: string
+    78→  updatedAt: string
+    79→}
+    80→
+    81→interface WpProduct {
+    82→  id: number
+    83→  slug: string
+    84→  title: string
+    85→  link: string
+    86→  excerpt: string
+    87→  featuredImage?: string
+    88→  meta: Record<string, string>
+    89→}
+    90→
+    91→interface ProductsResponse {
+    92→  products: WpProduct[]
+    93→  error?: string
+    94→}
+    95→
+    96→function maskPassword(pw: string): string {
+    97→  if (!pw) return ''
+    98→  return '•'.repeat(Math.min(pw.length, 16))
+    99→}
+   100→
+   101→function parseCustomFields(raw: string | null): string[] {
+   102→  if (!raw) return []
+   103→  const parsed = safeParse<string[]>(raw, [])
+   104→  return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : []
+   105→}
+   106→
+   107→function sourceCustomFields(source: WordPressSource): string[] {
+   108→  return parseCustomFields(source.customFields)
+   109→}
+   110→
+   111→/** Custom fields chip editor: text input + add button + removable chips. */
+   112→function CustomFieldsEditor({
+   113→  fields,
+   114→  onChange,
+   115→}: {
+   116→  fields: string[]
+   117→  onChange: (next: string[]) => void
+   118→}) {
+   119→  const [draft, setDraft] = React.useState('')
+   120→
+   121→  function addField() {
+   122→    const value = draft.trim()
+   123→    if (!value) return
+   124→    if (fields.includes(value)) {
+   125→      setDraft('')
+   126→      return
+   127→    }
+   128→    onChange([...fields, value])
+   129→    setDraft('')
+   130→  }
+   131→
+   132→  function removeField(field: string) {
+   133→    onChange(fields.filter((f) => f !== field))
+   134→  }
+   135→
+   136→  return (
+   137→    <div className="grid gap-2">
+   138→      <div className="flex gap-2">
+   139→        <Input
+   140→          value={draft}
+   141→          onChange={(e) => setDraft(e.target.value)}
+   142→          onKeyDown={(e) => {
+   143→            if (e.key === 'Enter') {
+   144→              e.preventDefault()
+   145→              addField()
+   146→            }
+   147→          }}
+   148→          placeholder="например, _price, _sku, _stock_status"
+   149→        />
+   150→        <Button type="button" variant="outline" onClick={addField}>
+   151→          <Plus className="size-4" />
+   152→          Добавить
+   153→        </Button>
+   154→      </div>
+   155→      {fields.length > 0 ? (
+   156→        <div className="flex flex-wrap gap-1.5">
+   157→          {fields.map((f) => (
+   158→            <Badge
+   159→              key={f}
+   160→              variant="secondary"
+   161→              className="gap-1 font-mono text-xs"
+   162→            >
+   163→              {f}
+   164→              <button
+   165→                type="button"
+   166→                className="ml-0.5 rounded-sm hover:bg-background/80"
+   167→                onClick={() => removeField(f)}
+   168→                aria-label={`Удалить ${f}`}
+   169→              >
+   170→                <X className="size-3" />
+   171→              </button>
+   172→            </Badge>
+   173→          ))}
+   174→        </div>
+   175→      ) : (
+   176→        <p className="text-xs text-muted-foreground">
+   177→          Список пуст. Можно добавить ключи кастомных полей WordPress (meta),
+   178→          которые нужно подтягивать из товаров.
+   179→        </p>
+   180→      )}
+   181→    </div>
+   182→  )
+   183→}
+   184→
+   185→interface SourceFormValues {
+   186→  name: string
+   187→  siteUrl: string
+   188→  username: string
+   189→  appPassword: string
+   190→  postType: string
+   191→  customFields: string[]
+   192→}
+   193→
+   194→function SourceFormDialog({
+   195→  open,
+   196→  onOpenChange,
+   197→  mode,
+   198→  initial,
+   199→  onSubmit,
+   200→  submitting,
+   201→}: {
+   202→  open: boolean
+   203→  onOpenChange: (open: boolean) => void
+   204→  mode: 'create' | 'edit'
+   205→  initial?: WordPressSource | null
+   206→  onSubmit: (values: SourceFormValues) => void
+   207→  submitting: boolean
+   208→}) {
+   209→  const isCreate = mode === 'create'
+   210→  const [name, setName] = React.useState(initial?.name ?? '')
+   211→  const [siteUrl, setSiteUrl] = React.useState(initial?.siteUrl ?? '')
+   212→  const [username, setUsername] = React.useState(initial?.username ?? '')
+   213→  const [appPassword, setAppPassword] = React.useState(initial?.appPassword ?? '')
+   214→  const [postType, setPostType] = React.useState(initial?.postType ?? 'product')
+   215→  const [customFields, setCustomFields] = React.useState<string[]>(
+   216→    initial ? sourceCustomFields(initial) : [],
+   217→  )
+   218→  const [showPassword, setShowPassword] = React.useState(false)
+   219→
+   220→  React.useEffect(() => {
+   221→    if (!open) return
+   222→    setName(initial?.name ?? '')
+   223→    setSiteUrl(initial?.siteUrl ?? '')
+   224→    setUsername(initial?.username ?? '')
+   225→    setAppPassword(initial?.appPassword ?? '')
+   226→    setPostType(initial?.postType ?? 'product')
+   227→    setCustomFields(initial ? sourceCustomFields(initial) : [])
+   228→    setShowPassword(false)
+   229→  }, [open, initial])
+   230→
+   231→  function handleSubmit(e: React.FormEvent) {
+   232→    e.preventDefault()
+   233→    if (!name.trim()) {
+   234→      toast.error('Укажите название источника')
+   235→      return
+   236→    }
+   237→    if (!siteUrl.trim()) {
+   238→      toast.error('Укажите URL сайта WordPress')
+   239→      return
+   240→    }
+   241→    if (!username.trim() || !appPassword) {
+   242→      toast.error('Укажите имя пользователя и пароль приложения')
+   243→      return
+   244→    }
+   245→    onSubmit({
+   246→      name: name.trim(),
+   247→      siteUrl: siteUrl.trim(),
+   248→      username: username.trim(),
+   249→      appPassword,
+   250→      postType: postType.trim() || 'product',
+   251→      customFields,
+   252→    })
+   253→  }
+   254→
+   255→  return (
+   256→    <Dialog open={open} onOpenChange={onOpenChange}>
+   257→      <DialogContent className="sm:max-w-lg">
+   258→        <DialogHeader>
+   259→          <DialogTitle>
+   260→            {isCreate ? 'Добавить источник WordPress' : 'Редактировать источник'}
+   261→          </DialogTitle>
+   262→          <DialogDescription>
+   263→            Используйте пароль приложения (Application Password) из настроек
+   264→            пользователя WordPress.
+   265→          </DialogDescription>
+   266→        </DialogHeader>
+   267→
+   268→        <form onSubmit={handleSubmit} className="grid gap-4">
+   269→          <div className="grid gap-2">
+   270→            <Label htmlFor="wp-name">Название</Label>
+   271→            <Input
+   272→              id="wp-name"
+   273→              value={name}
+   274→              onChange={(e) => setName(e.target.value)}
+   275→              placeholder="Например, Основной магазин"
+   276→              required
+   277→            />
+   278→          </div>
+   279→
+   280→          <div className="grid gap-2">
+   281→            <Label htmlFor="wp-url">URL сайта</Label>
+   282→            <Input
+   283→              id="wp-url"
+   284→              value={siteUrl}
+   285→              onChange={(e) => setSiteUrl(e.target.value)}
+   286→              placeholder="https://shop.example.com"
+   287→              required
+   288→            />
+   289→          </div>
+   290→
+   291→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+   292→            <div className="grid gap-2">
+   293→              <Label htmlFor="wp-username">Пользователь</Label>
+   294→              <Input
+   295→                id="wp-username"
+   296→                value={username}
+   297→                onChange={(e) => setUsername(e.target.value)}
+   298→                placeholder="admin"
+   299→                required
+   300→              />
+   301→            </div>
+   302→            <div className="grid gap-2">
+   303→              <Label htmlFor="wp-posttype">Тип записей</Label>
+   304→              <Input
+   305→                id="wp-posttype"
+   306→                value={postType}
+   307→                onChange={(e) => setPostType(e.target.value)}
+   308→                placeholder="product"
+   309→              />
+   310→            </div>
+   311→          </div>
+   312→
+   313→          <div className="grid gap-2">
+   314→            <Label htmlFor="wp-password">Пароль приложения</Label>
+   315→            <div className="relative">
+   316→              <Input
+   317→                id="wp-password"
+   318→                type={showPassword ? 'text' : 'password'}
+   319→                value={appPassword}
+   320→                onChange={(e) => setAppPassword(e.target.value)}
+   321→                placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+   322→                required
+   323→                className="pr-10 font-mono text-xs"
+   324→                autoComplete="new-password"
+   325→              />
+   326→              <Button
+   327→                type="button"
+   328→                variant="ghost"
+   329→                size="icon"
+   330→                className="absolute right-1 top-1 size-7"
+   331→                onClick={() => setShowPassword((s) => !s)}
+   332→                tabIndex={-1}
+   333→              >
+   334→                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+   335→              </Button>
+   336→            </div>
+   337→          </div>
+   338→
+   339→          <div className="grid gap-2">
+   340→            <Label className="flex items-center gap-1.5">
+   341→              <Settings2 className="size-3.5" />
+   342→              Кастомные поля
+   343→            </Label>
+   344→            <CustomFieldsEditor fields={customFields} onChange={setCustomFields} />
+   345→          </div>
+   346→
+   347→          <DialogFooter>
+   348→            <Button
+   349→              type="button"
+   350→              variant="outline"
+   351→              onClick={() => onOpenChange(false)}
+   352→            >
+   353→              Отмена
+   354→            </Button>
+   355→            <Button
+   356→              type="submit"
+   357→              disabled={submitting}
+   358→              className="bg-teal-700 text-white hover:bg-teal-700/90"
+   359→            >
+   360→              {submitting ? 'Сохранение…' : isCreate ? 'Добавить' : 'Сохранить'}
+   361→            </Button>
+   362→          </DialogFooter>
+   363→        </form>
+   364→      </DialogContent>
+   365→    </Dialog>
+   366→  )
+   367→}
+   368→
+   369→function ProductList({
+   370→  sourceId,
+   371→  customFields,
+   372→}: {
+   373→  sourceId: string
+   374→  customFields: string[]
+   375→}) {
+   376→  const { data, isLoading, isError, refetch, error } = useQuery<ProductsResponse>({
+   377→    queryKey: ['wordpress', sourceId, 'products'],
+   378→    queryFn: async () => {
+   379→      const res = await fetch(`/api/wordpress/${sourceId}/products`)
+   380→      if (!res.ok) throw new Error('Не удалось загрузить товары')
+   381→      return (await res.json()) as ProductsResponse
+   382→    },
+   383→  })
+   384→
+   385→  if (isLoading) {
+   386→    return (
+   387→      <div className="grid gap-2">
+   388→        {Array.from({ length: 4 }).map((_, i) => (
+   389→          <Skeleton key={i} className="h-24 w-full" />
+   390→        ))}
+   391→      </div>
+   392→    )
+   393→  }
+   394→
+   395→  if (isError) {
+   396→    return (
+   397→      <Alert variant="destructive">
+   398→        <AlertTitle>Ошибка запроса</AlertTitle>
+   399→        <AlertDescription>
+   400→          {error instanceof Error ? error.message : 'Неизвестная ошибка'}.{' '}
+   401→          <Button
+   402→            variant="link"
+   403→            className="h-auto p-0 text-destructive"
+   404→            onClick={() => refetch()}
+   405→          >
+   406→            Повторить
+   407→          </Button>
+   408→        </AlertDescription>
+   409→      </Alert>
+   410→    )
+   411→  }
+   412→
+   413→  if (data?.error) {
+   414→    return (
+   415→      <Alert variant="destructive">
+   416→        <AlertTitle>WordPress вернул ошибку</AlertTitle>
+   417→        <AlertDescription className="break-words">{data.error}</AlertDescription>
+   418→      </Alert>
+   419→    )
+   420→  }
+   421→
+   422→  const products = data?.products ?? []
+   423→  if (products.length === 0) {
+   424→    return (
+   425→      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+   426→        Товары не найдены. Проверьте URL, тип записи и учётные данные.
+   427→      </div>
+   428→    )
+   429→  }
+   430→
+   431→  return (
+   432→    <div className="grid gap-2">
+   433→      <div className="text-xs text-muted-foreground">
+   434→        Найдено товаров: {products.length}
+   435→      </div>
+   436→      <ScrollArea className="max-h-96 rounded-md border">
+   437→        <div className="grid gap-2 p-2">
+   438→          {products.map((p) => {
+   439→            const metaEntries = Object.entries(p.meta ?? {}).slice(0, 4)
+   440→            const filteredMeta =
+   441→              customFields.length > 0
+   442→                ? metaEntries.filter(([k]) => customFields.includes(k))
+   443→                : metaEntries
+   444→            return (
+   445→              <div
+   446→                key={p.id}
+   447→                className="flex gap-3 rounded-md border bg-card p-3 text-sm"
+   448→              >
+   449→                <div className="size-12 shrink-0 overflow-hidden rounded bg-muted">
+   450→                  {p.featuredImage ? (
+   451→                    <img
+   452→                      src={p.featuredImage}
+   453→                      alt={p.title}
+   454→                      className="size-full object-cover"
+   455→                      loading="lazy"
+   456→                    />
+   457→                  ) : (
+   458→                    <div className="flex size-full items-center justify-center text-muted-foreground">
+   459→                      <ImageOff className="size-4" />
+   460→                    </div>
+   461→                  )}
+   462→                </div>
+   463→                <div className="min-w-0 flex-1">
+   464→                  <div className="flex items-center justify-between gap-2">
+   465→                    <a
+   466→                      href={p.link}
+   467→                      target="_blank"
+   468→                      rel="noopener noreferrer"
+   469→                      className="truncate font-medium text-foreground hover:underline"
+   470→                    >
+   471→                      {p.title || 'Без названия'}
+   472→                    </a>
+   473→                    <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
+   474→                  </div>
+   475→                  <div className="truncate font-mono text-xs text-muted-foreground">
+   476→                    /{p.slug || p.id}
+   477→                  </div>
+   478→                  {p.excerpt && (
+   479→                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+   480→                      {p.excerpt}
+   481→                    </div>
+   482→                  )}
+   483→                  {filteredMeta.length > 0 && (
+   484→                    <div className="mt-1.5 flex flex-wrap gap-1">
+   485→                      {filteredMeta.map(([k, v]) => (
+   486→                        <Badge
+   487→                          key={k}
+   488→                          variant="secondary"
+   489→                          className="font-mono text-[10px]"
+   490→                        >
+   491→                          <span className="text-muted-foreground">{k}:</span>
+   492→                          <span className="ml-1 max-w-[140px] truncate">{v}</span>
+   493→                        </Badge>
+   494→                      ))}
+   495→                    </div>
+   496→                  )}
+   497→                </div>
+   498→              </div>
+   499→            )
+   500→          })}
+   501→        </div>
+   502→      </ScrollArea>
+   503→    </div>
+   504→  )
+   505→}
+   506→
+   507→function SourceCard({
+   508→  source,
+   509→  onEdit,
+   510→  onDelete,
+   511→  onShowProducts,
+   512→  onToggleActive,
+   513→  toggling,
+   514→}: {
+   515→  source: WordPressSource
+   516→  onEdit: () => void
+   517→  onDelete: () => void
+   518→  onShowProducts: () => void
+   519→  onToggleActive: (next: boolean) => void
+   520→  toggling: boolean
+   521→}) {
+   522→  const fields = sourceCustomFields(source)
+   523→  const [showPassword, setShowPassword] = React.useState(false)
+   524→
+   525→  return (
+   526→    <Card className="gap-3">
+   527→      <CardHeader>
+   528→        <div className="flex items-start justify-between gap-3">
+   529→          <div className="min-w-0 flex-1">
+   530→            <CardTitle className="truncate text-base">{source.name}</CardTitle>
+   531→            <a
+   532→              href={source.siteUrl}
+   533→              target="_blank"
+   534→              rel="noopener noreferrer"
+   535→              className="mt-1 inline-flex items-center gap-1 truncate text-xs text-teal-700 hover:underline dark:text-teal-300"
+   536→            >
+   537→              <Globe className="size-3" />
+   538→              {source.siteUrl}
+   539→              <ExternalLink className="size-3" />
+   540→            </a>
+   541→            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+   542→              <Badge variant="outline" className="font-mono text-xs">
+   543→                <ShoppingBag className="size-3" />
+   544→                {source.postType || 'product'}
+   545→              </Badge>
+   546→              {source.lastSyncAt && (
+   547→                <Badge variant="secondary" className="text-xs text-muted-foreground">
+   548→                  Синхр.: {new Date(source.lastSyncAt).toLocaleString('ru-RU')}
+   549→                </Badge>
+   550→              )}
+   551→            </div>
+   552→          </div>
+   553→          <Switch
+   554→            checked={source.active}
+   555→            disabled={toggling}
+   556→            onCheckedChange={onToggleActive}
+   557→            aria-label="Активность источника"
+   558→          />
+   559→        </div>
+   560→      </CardHeader>
+   561→
+   562→      <CardContent className="grid gap-3 text-sm">
+   563→        <div className="grid gap-1">
+   564→          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   565→            <User className="size-3" />
+   566→            Пользователь
+   567→          </div>
+   568→          <div className="font-mono text-xs">{source.username}</div>
+   569→        </div>
+   570→
+   571→        <div className="grid gap-1">
+   572→          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   573→            <KeyRound className="size-3" />
+   574→            Пароль приложения
+   575→          </div>
+   576→          <div className="flex items-center gap-2">
+   577→            <span className="font-mono text-xs">
+   578→              {showPassword ? source.appPassword : maskPassword(source.appPassword)}
+   579→            </span>
+   580→            <Button
+   581→              size="sm"
+   582→              variant="ghost"
+   583→              className="h-6 px-2 text-xs"
+   584→              onClick={() => setShowPassword((s) => !s)}
+   585→            >
+   586→              {showPassword ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+   587→              {showPassword ? 'Скрыть' : 'Показать'}
+   588→            </Button>
+   589→          </div>
+   590→        </div>
+   591→
+   592→        <div className="grid gap-1">
+   593→          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   594→            <Settings2 className="size-3" />
+   595→            Кастомные поля
+   596→          </div>
+   597→          {fields.length > 0 ? (
+   598→            <div className="flex flex-wrap gap-1.5">
+   599→              {fields.map((f) => (
+   600→                <Badge
+   601→                  key={f}
+   602→                  variant="secondary"
+   603→                  className="font-mono text-[10px]"
+   604→                >
+   605→                  {f}
+   606→                </Badge>
+   607→              ))}
+   608→            </div>
+   609→          ) : (
+   610→            <div className="text-xs text-muted-foreground">— не заданы —</div>
+   611→          )}
+   612→        </div>
+   613→      </CardContent>
+   614→
+   615→      <CardFooter className="flex flex-wrap items-center gap-2">
+   616→        <Button size="sm" variant="outline" onClick={onShowProducts}>
+   617→          <RefreshCw className="size-3.5" />
+   618→          Проверить связь / Загрузить товары
+   619→        </Button>
+   620→        <Button size="sm" variant="outline" onClick={onEdit}>
+   621→          <Pencil className="size-3.5" />
+   622→          Редактировать
+   623→        </Button>
+   624→        <Button
+   625→          size="sm"
+   626→          variant="ghost"
+   627→          className="text-destructive hover:text-destructive"
+   628→          onClick={onDelete}
+   629→        >
+   630→          <Trash2 className="size-3.5" />
+   631→          Удалить
+   632→        </Button>
+   633→      </CardFooter>
+   634→    </Card>
+   635→  )
+   636→}
+   637→
+   638→export function WordPressSection() {
+   639→  const queryClient = useQueryClient()
+   640→  const { data, isLoading, isError, refetch } = useQuery<WordPressSource[]>({
+   641→    queryKey: ['wordpress'],
+   642→    queryFn: async () => {
+   643→      const res = await fetch('/api/wordpress')
+   644→      if (!res.ok) throw new Error('Не удалось загрузить источники')
+   645→      return (await res.json()) as WordPressSource[]
+   646→    },
+   647→  })
+   648→
+   649→  const [dialogOpen, setDialogOpen] = React.useState(false)
+   650→  const [editTarget, setEditTarget] = React.useState<WordPressSource | null>(null)
+   651→  const [deleteTarget, setDeleteTarget] = React.useState<WordPressSource | null>(null)
+   652→  const [productsSource, setProductsSource] = React.useState<WordPressSource | null>(
+   653→    null,
+   654→  )
+   655→
+   656→  const createMutation = useMutation({
+   657→    mutationFn: async (values: SourceFormValues) => {
+   658→      const res = await fetch('/api/wordpress', {
+   659→        method: 'POST',
+   660→        headers: { 'Content-Type': 'application/json' },
+   661→        body: JSON.stringify({
+   662→          name: values.name,
+   663→          siteUrl: values.siteUrl,
+   664→          username: values.username,
+   665→          appPassword: values.appPassword,
+   666→          postType: values.postType,
+   667→          customFields: values.customFields,
+   668→        }),
+   669→      })
+   670→      if (!res.ok) {
+   671→        const data = await res.json().catch(() => ({}))
+   672→        throw new Error(data?.error || 'Ошибка создания')
+   673→      }
+   674→      return res.json()
+   675→    },
+   676→    onSuccess: () => {
+   677→      toast.success('Источник добавлен')
+   678→      queryClient.invalidateQueries({ queryKey: ['wordpress'] })
+   679→      setDialogOpen(false)
+   680→    },
+   681→    onError: (e: Error) => toast.error(e.message),
+   682→  })
+   683→
+   684→  const updateMutation = useMutation({
+   685→    mutationFn: async (vars: { id: string; values: SourceFormValues }) => {
+   686→      const res = await fetch(`/api/wordpress/${vars.id}`, {
+   687→        method: 'PUT',
+   688→        headers: { 'Content-Type': 'application/json' },
+   689→        body: JSON.stringify({
+   690→          name: vars.values.name,
+   691→          siteUrl: vars.values.siteUrl,
+   692→          username: vars.values.username,
+   693→          appPassword: vars.values.appPassword,
+   694→          postType: vars.values.postType,
+   695→          customFields: vars.values.customFields,
+   696→        }),
+   697→      })
+   698→      if (!res.ok) {
+   699→        const data = await res.json().catch(() => ({}))
+   700→        throw new Error(data?.error || 'Ошибка обновления')
+   701→      }
+   702→      return res.json()
+   703→    },
+   704→    onSuccess: () => {
+   705→      toast.success('Источник обновлён')
+   706→      queryClient.invalidateQueries({ queryKey: ['wordpress'] })
+   707→      setDialogOpen(false)
+   708→      setEditTarget(null)
+   709→    },
+   710→    onError: (e: Error) => toast.error(e.message),
+   711→  })
+   712→
+   713→  const toggleMutation = useMutation({
+   714→    mutationFn: async (vars: { id: string; active: boolean }) => {
+   715→      const res = await fetch(`/api/wordpress/${vars.id}`, {
+   716→        method: 'PUT',
+   717→        headers: { 'Content-Type': 'application/json' },
+   718→        body: JSON.stringify({ active: vars.active }),
+   719→      })
+   720→      if (!res.ok) throw new Error('Не удалось изменить статус')
+   721→      return res.json()
+   722→    },
+   723→    onSuccess: () => {
+   724→      queryClient.invalidateQueries({ queryKey: ['wordpress'] })
+   725→    },
+   726→    onError: (e: Error) => toast.error(e.message),
+   727→  })
+   728→
+   729→  const deleteMutation = useMutation({
+   730→    mutationFn: async (id: string) => {
+   731→      const res = await fetch(`/api/wordpress/${id}`, { method: 'DELETE' })
+   732→      if (!res.ok) throw new Error('Не удалось удалить')
+   733→      return res.json()
+   734→    },
+   735→    onSuccess: () => {
+   736→      toast.success('Источник удалён')
+   737→      queryClient.invalidateQueries({ queryKey: ['wordpress'] })
+   738→      setDeleteTarget(null)
+   739→    },
+   740→    onError: (e: Error) => toast.error(e.message),
+   741→  })
+   742→
+   743→  const submitting = createMutation.isPending || updateMutation.isPending
+   744→
+   745→  function openCreate() {
+   746→    setEditTarget(null)
+   747→    setDialogOpen(true)
+   748→  }
+   749→
+   750→  function openEdit(src: WordPressSource) {
+   751→    setEditTarget(src)
+   752→    setDialogOpen(true)
+   753→  }
+   754→
+   755→  function handleSubmit(values: SourceFormValues) {
+   756→    if (editTarget) {
+   757→      updateMutation.mutate({ id: editTarget.id, values })
+   758→    } else {
+   759→      createMutation.mutate(values)
+   760→    }
+   761→  }
+   762→
+   763→  return (
+   764→    <div className="grid gap-4">
+   765→      <Card className="bg-teal-50/40 dark:bg-teal-950/10">
+   766→        <CardHeader>
+   767→          <CardTitle className="text-base">WordPress</CardTitle>
+   768→          <CardDescription>
+   769→            Подключите ваш WordPress-магазин. Посты будут создаваться на основе
+   770→            товаров и их кастомных полей. (Полная интеграция с кастомными полями —
+   771→            следующий этап.)
+   772→          </CardDescription>
+   773→        </CardHeader>
+   774→      </Card>
+   775→
+   776→      <div className="flex items-center justify-between gap-2">
+   777→        <div className="text-sm text-muted-foreground">
+   778→          Источников:{' '}
+   779→          <span className="font-medium text-foreground">{data?.length ?? 0}</span>
+   780→        </div>
+   781→        <Button
+   782→          onClick={openCreate}
+   783→          className="bg-teal-700 text-white hover:bg-teal-700/90"
+   784→        >
+   785→          <Plus className="size-4" />
+   786→          Добавить источник
+   787→        </Button>
+   788→      </div>
+   789→
+   790→      {isLoading ? (
+   791→        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+   792→          {Array.from({ length: 2 }).map((_, i) => (
+   793→            <Skeleton key={i} className="h-72 w-full" />
+   794→          ))}
+   795→        </div>
+   796→      ) : isError ? (
+   797→        <Card>
+   798→          <CardContent className="py-6 text-sm text-destructive">
+   799→            Не удалось загрузить источники.{' '}
+   800→            <Button
+   801→              variant="link"
+   802→              className="h-auto p-0"
+   803→              onClick={() => refetch()}
+   804→            >
+   805→              Повторить
+   806→            </Button>
+   807→          </CardContent>
+   808→        </Card>
+   809→      ) : !data || data.length === 0 ? (
+   810→        <Card className="border-dashed">
+   811→          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+   812→            <div className="rounded-full bg-muted p-3">
+   813→              <Globe className="size-5 text-muted-foreground" />
+   814→            </div>
+   815→            <div>
+   816→              <div className="font-medium">Нет подключённых источников</div>
+   817→              <div className="text-sm text-muted-foreground">
+   818→                Добавьте WordPress-магазин, чтобы подтягивать товары для постов.
+   819→              </div>
+   820→            </div>
+   821→            <Button
+   822→              onClick={openCreate}
+   823→              className="bg-teal-700 text-white hover:bg-teal-700/90"
+   824→            >
+   825→              <Plus className="size-4" />
+   826→              Добавить источник
+   827→            </Button>
+   828→          </CardContent>
+   829→        </Card>
+   830→      ) : (
+   831→        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+   832→          {data.map((src) => (
+   833→            <SourceCard
+   834→              key={src.id}
+   835→              source={src}
+   836→              onEdit={() => openEdit(src)}
+   837→              onDelete={() => setDeleteTarget(src)}
+   838→              onShowProducts={() => setProductsSource(src)}
+   839→              onToggleActive={(next) =>
+   840→                toggleMutation.mutate({ id: src.id, active: next })
+   841→              }
+   842→              toggling={toggleMutation.isPending}
+   843→            />
+   844→          ))}
+   845→        </div>
+   846→      )}
+   847→
+   848→      <SourceFormDialog
+   849→        open={dialogOpen}
+   850→        onOpenChange={(o) => {
+   851→          setDialogOpen(o)
+   852→          if (!o) setEditTarget(null)
+   853→        }}
+   854→        mode={editTarget ? 'edit' : 'create'}
+   855→        initial={editTarget}
+   856→        onSubmit={handleSubmit}
+   857→        submitting={submitting}
+   858→      />
+   859→
+   860→      <AlertDialog
+   861→        open={!!deleteTarget}
+   862→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   863→      >
+   864→        <AlertDialogContent>
+   865→          <AlertDialogHeader>
+   866→            <AlertDialogTitle>Удалить источник?</AlertDialogTitle>
+   867→            <AlertDialogDescription>
+   868→              {deleteTarget?.name ? (
+   869→                <>
+   870→                  Источник «{deleteTarget.name}» будет удалён без возможности
+   871→                  восстановления.
+   872→                </>
+   873→              ) : (
+   874→                'Это действие нельзя отменить.'
+   875→              )}
+   876→            </AlertDialogDescription>
+   877→          </AlertDialogHeader>
+   878→          <AlertDialogFooter>
+   879→            <AlertDialogCancel>Отмена</AlertDialogCancel>
+   880→            <AlertDialogAction
+   881→              className="bg-destructive text-white hover:bg-destructive/90"
+   882→              disabled={deleteMutation.isPending}
+   883→              onClick={(e) => {
+   884→                e.preventDefault()
+   885→                if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+   886→              }}
+   887→            >
+   888→              {deleteMutation.isPending ? 'Удаление…' : 'Удалить'}
+   889→            </AlertDialogAction>
+   890→          </AlertDialogFooter>
+   891→        </AlertDialogContent>
+   892→      </AlertDialog>
+   893→
+   894→      <Sheet
+   895→        open={!!productsSource}
+   896→        onOpenChange={(o) => !o && setProductsSource(null)}
+   897→      >
+   898→        <SheetContent
+   899→          side="right"
+   900→          className="w-full flex flex-col gap-4 sm:max-w-xl"
+   901→        >
+   902→          <SheetHeader>
+   903→            <SheetTitle>Товары — {productsSource?.name}</SheetTitle>
+   904→            <SheetDescription>
+   905→              Загрузка из{' '}
+   906→              <span className="font-mono text-xs">
+   907→                {productsSource?.siteUrl}
+   908→              </span>{' '}
+   909→              · тип:{' '}
+   910→              <span className="font-mono text-xs">
+   911→                {productsSource?.postType || 'product'}
+   912→              </span>
+   913→            </SheetDescription>
+   914→          </SheetHeader>
+   915→          <div className="flex-1 overflow-hidden px-4 pb-4">
+   916→            {productsSource && (
+   917→              <ProductList
+   918→                sourceId={productsSource.id}
+   919→                customFields={sourceCustomFields(productsSource)}
+   920→              />
+   921→            )}
+   922→          </div>
+   923→        </SheetContent>
+   924→      </Sheet>
+   925→    </div>
+   926→  )
+   927→}
+   928→
+   929→export default WordPressSection
+   930→

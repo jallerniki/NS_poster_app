@@ -1,0 +1,149 @@
+// Prisma schema for Social Media Scheduled Posting Dashboard
+// Supports Telegram, MAX, VK platforms with calendar, appendices, WordPress integration
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A connected bot/channel/group for a social platform (Telegram / MAX / VK)
+model PlatformAccount {
+  id          String   @id @default(cuid())
+  /// "telegram" | "max" | "vk"
+  platform    String
+  /// Human label, e.g. "Main Telegram Channel"
+  name        String
+  /// Target chat/channel id or peer
+  targetId    String?
+  /// Bot token (Telegram / MAX) or access token (VK)
+  token       String
+  /// Additional connection info (group_id for VK user, api_id for TG, etc.)
+  extra       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  targets     ScheduledPostTarget[]
+}
+
+/// A scheduled (or already published) post. Targets one or more platforms via ScheduledPostTarget.
+model ScheduledPost {
+  id            String   @id @default(cuid())
+  /// Internal title for the dashboard
+  title         String
+  /// Main body text (combined with per-platform appendix at publish time)
+  content       String
+  /// Optional image URL(s) - stored as JSON string array
+  mediaUrls     String?
+  /// Product reference from WordPress (post id / slug)
+  wordpressRef  String?
+  /// JSON with product metadata (sku, categories, permalink) for inline buttons
+  productMeta   String?
+  /// Scheduled publication time (UTC)
+  scheduledAt   DateTime
+  /// Overall status derived from targets: "draft" | "scheduled" | "publishing" | "published" | "partial" | "failed" | "canceled"
+  status        String   @default("scheduled")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  targets       ScheduledPostTarget[]
+}
+
+/// One publication target per platform account for a scheduled post
+model ScheduledPostTarget {
+  id            String   @id @default(cuid())
+  postId        String
+  post          ScheduledPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// Per-target status: "pending" | "publishing" | "published" | "failed" | "canceled"
+  status        String   @default("pending")
+  /// Selected appendix template for this target
+  appendixId    String?
+  /// Error message if failed
+  errorMessage  String?
+  /// Result message id / link returned by platform
+  resultRef     String?
+  /// When the publish attempt happened
+  publishedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Reusable text snippet appended to posts for a specific platform
+model AppendixTemplate {
+  id          String   @id @default(cuid())
+  /// "telegram" | "max" | "vk" | "all"
+  platform    String
+  name        String
+  /// The snippet text (hashtags, call-to-action, links, etc.)
+  body        String
+  /// "prepend" | "append"
+  position    String   @default("append")
+  /// Optional tag for grouping
+  category    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// WordPress source configuration (site URL + application password)
+model WordPressSource {
+  id           String   @id @default(cuid())
+  name         String
+  siteUrl      String
+  /// Basic auth user (application password username)
+  username     String
+  /// Application password
+  appPassword  String
+  /// Custom field keys to use as product fields - JSON string array
+  customFields String?
+  /// Post type to query (default "product")
+  postType     String   @default("product")
+  active       Boolean  @default(true)
+  lastSyncAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Post template: how a WordPress product is turned into a social post
+model PostTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  /// Template body with placeholders like {{title}}, {{price}}, {{url}}, {{custom.X}}
+  body         String
+  /// Platform this template is for: "telegram" | "max" | "vk" | "all"
+  platform     String   @default("all")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Inline-button preset for Telegram/MAX posts — auto-generated links to product + category
+model ButtonPreset {
+  id          String   @id @default(cuid())
+  name        String
+  /// "telegram" | "max"
+  platform    String
+  /// Label for the product button, e.g. "Товар"
+  productLabel String  @default("Товар")
+  /// URL template for product link. Placeholders: {{sku}}, {{id}}, {{slug}}
+  /// TG example: https://t.me/test_nstkani_bot/ns_tkani_catalogue?startapp={{sku}}
+  /// MAX example: https://nstkani.ru/?from=max&start={{sku}}
+  productUrl  String
+  /// Label for the category button, e.g. "Категория"
+  categoryLabel String @default("Категория")
+  /// URL template for category link. Placeholders: {{category}}, {{categorySlug}}
+  /// TG example: https://t.me/test_nstkani_bot/ns_tkani_catalogue?startapp=cat-{{categorySlug}}
+  /// MAX example: https://nstkani.ru/?from=max&start=cat-{{categorySlug}}
+  categoryUrl String
+  /// Whether buttons are attached by default when a post is created from a template
+  buttonsEnabledByDefault Boolean @default(true)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

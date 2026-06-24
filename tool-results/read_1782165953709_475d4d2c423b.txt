@@ -1,0 +1,842 @@
+     1→'use client'
+     2→
+     3→import * as React from 'react'
+     4→import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+     5→import { toast } from 'sonner'
+     6→import {
+     7→  ExternalLink,
+     8→  Eye,
+     9→  Link2,
+    10→  MousePointerClick,
+    11→  Pencil,
+    12→  Plus,
+    13→  Send,
+    14→  MessageCircle,
+    15→  Trash2,
+    16→} from 'lucide-react'
+    17→
+    18→import { cn } from '@/lib/utils'
+    19→
+    20→import {
+    21→  Card,
+    22→  CardContent,
+    23→  CardDescription,
+    24→  CardFooter,
+    25→  CardHeader,
+    26→  CardTitle,
+    27→} from '@/components/ui/card'
+    28→import { Button } from '@/components/ui/button'
+    29→import { Input } from '@/components/ui/input'
+    30→import { Label } from '@/components/ui/label'
+    31→import { Badge } from '@/components/ui/badge'
+    32→import { Skeleton } from '@/components/ui/skeleton'
+    33→import {
+    34→  Select,
+    35→  SelectContent,
+    36→  SelectItem,
+    37→  SelectTrigger,
+    38→  SelectValue,
+    39→} from '@/components/ui/select'
+    40→import {
+    41→  Dialog,
+    42→  DialogContent,
+    43→  DialogDescription,
+    44→  DialogFooter,
+    45→  DialogHeader,
+    46→  DialogTitle,
+    47→} from '@/components/ui/dialog'
+    48→import {
+    49→  AlertDialog,
+    50→  AlertDialogAction,
+    51→  AlertDialogCancel,
+    52→  AlertDialogContent,
+    53→  AlertDialogDescription,
+    54→  AlertDialogFooter,
+    55→  AlertDialogHeader,
+    56→  AlertDialogTitle,
+    57→} from '@/components/ui/alert-dialog'
+    58→
+    59→/** Shape returned by /api/button-presets. */
+    60→interface ButtonPreset {
+    61→  id: string
+    62→  name: string
+    63→  platform: string
+    64→  productLabel: string
+    65→  productUrl: string
+    66→  categoryLabel: string
+    67→  categoryUrl: string
+    68→  active: boolean
+    69→  createdAt: string
+    70→  updatedAt: string
+    71→}
+    72→
+    73→type Platform = 'telegram' | 'max'
+    74→
+    75→interface PlatformMeta {
+    76→  label: string
+    77→  /** Tailwind classes for the platform badge. */
+    78→  badgeClass: string
+    79→  /** Tailwind classes for the live-preview button pill. */
+    80→  pillClass: string
+    81→  icon: React.ComponentType<{ className?: string }>
+    82→}
+    83→
+    84→const PLATFORM_META: Record<Platform, PlatformMeta> = {
+    85→  telegram: {
+    86→    label: 'Telegram',
+    87→    badgeClass:
+    88→      'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-300',
+    89→    pillClass:
+    90→      'border-sky-300 bg-sky-500 text-white hover:bg-sky-600 dark:border-sky-700 dark:bg-sky-600 dark:hover:bg-sky-500',
+    91→    icon: Send,
+    92→  },
+    93→  max: {
+    94→    label: 'MAX',
+    95→    badgeClass:
+    96→      'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300',
+    97→    pillClass:
+    98→      'border-emerald-300 bg-emerald-500 text-white hover:bg-emerald-600 dark:border-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500',
+    99→    icon: MessageCircle,
+   100→  },
+   101→}
+   102→
+   103→function getPlatformMeta(platform: string): PlatformMeta {
+   104→  return (
+   105→    PLATFORM_META[platform as Platform] ?? {
+   106→      label: platform,
+   107→      badgeClass: '',
+   108→      pillClass: '',
+   109→      icon: MousePointerClick,
+   110→    }
+   111→  )
+   112→}
+   113→
+   114→/** Variables that can be used inside URL templates. */
+   115→const VARIABLES: Array<{ token: string; label: string }> = [
+   116→  { token: '{{sku}}', label: 'Артикул товара' },
+   117→  { token: '{{id}}', label: 'ID товара' },
+   118→  { token: '{{slug}}', label: 'Slug товара' },
+   119→  { token: '{{category}}', label: 'Название категории' },
+   120→  { token: '{{categorySlug}}', label: 'Slug категории' },
+   121→]
+   122→
+   123→/** Platform-specific example templates (clickable to fill the form). */
+   124→const EXAMPLES: Array<{
+   125→  platform: Platform
+   126→  kind: 'product' | 'category'
+   127→  url: string
+   128→}> = [
+   129→  {
+   130→    platform: 'telegram',
+   131→    kind: 'product',
+   132→    url: 'https://t.me/test_nstkani_bot/ns_tkani_catalogue?startapp={{sku}}',
+   133→  },
+   134→  {
+   135→    platform: 'telegram',
+   136→    kind: 'category',
+   137→    url: 'https://t.me/test_nstkani_bot/ns_tkani_catalogue?startapp=cat-{{categorySlug}}',
+   138→  },
+   139→  {
+   140→    platform: 'max',
+   141→    kind: 'product',
+   142→    url: 'https://nstkani.ru/?from=max&start={{sku}}',
+   143→  },
+   144→  {
+   145→    platform: 'max',
+   146→    kind: 'category',
+   147→    url: 'https://nstkani.ru/?from=max&start=cat-{{categorySlug}}',
+   148→  },
+   149→]
+   150→
+   151→/**
+   152→ * Render a URL template with placeholders replaced by example values — used for
+   153→ * the live preview so the user can see what the final URL will look like.
+   154→ */
+   155→function renderUrlTemplate(template: string): string {
+   156→  if (!template) return ''
+   157→  return template
+   158→    .replace(/\{\{sku\}\}/g, '13876')
+   159→    .replace(/\{\{id\}\}/g, '13876')
+   160→    .replace(/\{\{slug\}\}/g, 'ljon-s-hlopkom-peserico')
+   161→    .replace(/\{\{category\}\}/g, 'Лён')
+   162→    .replace(/\{\{categorySlug\}\}/g, 'len')
+   163→}
+   164→
+   165→interface FormValues {
+   166→  name: string
+   167→  platform: Platform
+   168→  productLabel: string
+   169→  productUrl: string
+   170→  categoryLabel: string
+   171→  categoryUrl: string
+   172→}
+   173→
+   174→const EMPTY_FORM: FormValues = {
+   175→  name: '',
+   176→  platform: 'telegram',
+   177→  productLabel: 'Товар',
+   178→  productUrl: '',
+   179→  categoryLabel: 'Категория',
+   180→  categoryUrl: '',
+   181→}
+   182→
+   183→function ButtonPresetFormDialog({
+   184→  open,
+   185→  onOpenChange,
+   186→  mode,
+   187→  initial,
+   188→  onSubmit,
+   189→  submitting,
+   190→}: {
+   191→  open: boolean
+   192→  onOpenChange: (open: boolean) => void
+   193→  mode: 'create' | 'edit'
+   194→  initial?: ButtonPreset | null
+   195→  onSubmit: (values: FormValues) => void
+   196→  submitting: boolean
+   197→}) {
+   198→  const isCreate = mode === 'create'
+   199→  const [form, setForm] = React.useState<FormValues>(EMPTY_FORM)
+   200→
+   201→  React.useEffect(() => {
+   202→    if (!open) return
+   203→    if (initial) {
+   204→      setForm({
+   205→        name: initial.name,
+   206→        platform: (initial.platform as Platform) ?? 'telegram',
+   207→        productLabel: initial.productLabel || 'Товар',
+   208→        productUrl: initial.productUrl,
+   209→        categoryLabel: initial.categoryLabel || 'Категория',
+   210→        categoryUrl: initial.categoryUrl,
+   211→      })
+   212→    } else {
+   213→      setForm(EMPTY_FORM)
+   214→    }
+   215→  }, [open, initial])
+   216→
+   217→  const meta = getPlatformMeta(form.platform)
+   218→  const productPreviewUrl = renderUrlTemplate(form.productUrl)
+   219→  const categoryPreviewUrl = renderUrlTemplate(form.categoryUrl)
+   220→
+   221→  function setField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
+   222→    setForm((f) => ({ ...f, [key]: value }))
+   223→  }
+   224→
+   225→  /** Fill a URL field with an example for the currently selected platform. */
+   226→  function applyExample(kind: 'product' | 'category', url: string) {
+   227→    if (kind === 'product') {
+   228→      setField('productUrl', url)
+   229→    } else {
+   230→      setField('categoryUrl', url)
+   231→    }
+   232→    toast.success('Пример подставлен')
+   233→  }
+   234→
+   235→  function handleSubmit(e: React.FormEvent) {
+   236→    e.preventDefault()
+   237→    if (!form.name.trim()) {
+   238→      toast.error('Укажите название пресета')
+   239→      return
+   240→    }
+   241→    if (!form.productUrl.trim() || !form.categoryUrl.trim()) {
+   242→      toast.error('Заполните оба URL-шаблона')
+   243→      return
+   244→    }
+   245→    onSubmit({
+   246→      ...form,
+   247→      name: form.name.trim(),
+   248→      productLabel: form.productLabel.trim() || 'Товар',
+   249→      categoryLabel: form.categoryLabel.trim() || 'Категория',
+   250→      productUrl: form.productUrl.trim(),
+   251→      categoryUrl: form.categoryUrl.trim(),
+   252→    })
+   253→  }
+   254→
+   255→  return (
+   256→    <Dialog open={open} onOpenChange={onOpenChange}>
+   257→      <DialogContent className="sm:max-w-2xl">
+   258→        <DialogHeader>
+   259→          <DialogTitle>
+   260→            {isCreate ? 'Новый пресет кнопок' : 'Редактировать пресет кнопок'}
+   261→          </DialogTitle>
+   262→          <DialogDescription>
+   263→            Пресет описывает две inline-кнопки (Товар и Категория), которые
+   264→            автоматически добавляются к посту при публикации на выбранную
+   265→            площадку.
+   266→          </DialogDescription>
+   267→        </DialogHeader>
+   268→
+   269→        <form onSubmit={handleSubmit} className="grid gap-4">
+   270→          <div className="grid gap-4 sm:grid-cols-2">
+   271→            <div className="grid gap-2">
+   272→              <Label htmlFor="bp-name">Название</Label>
+   273→              <Input
+   274→                id="bp-name"
+   275→                value={form.name}
+   276→                onChange={(e) => setField('name', e.target.value)}
+   277→                placeholder="Например, Telegram — кнопки магазина"
+   278→                required
+   279→              />
+   280→            </div>
+   281→            <div className="grid gap-2">
+   282→              <Label htmlFor="bp-platform">Площадка</Label>
+   283→              <Select
+   284→                value={form.platform}
+   285→                onValueChange={(v) => setField('platform', v as Platform)}
+   286→              >
+   287→                <SelectTrigger id="bp-platform" className="w-full">
+   288→                  <SelectValue placeholder="Выберите площадку" />
+   289→                </SelectTrigger>
+   290→                <SelectContent>
+   291→                  <SelectItem value="telegram">Telegram</SelectItem>
+   292→                  <SelectItem value="max">MAX</SelectItem>
+   293→                </SelectContent>
+   294→              </Select>
+   295→            </div>
+   296→          </div>
+   297→
+   298→          {/* Product button */}
+   299→          <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
+   300→            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+   301→              <ExternalLink className="size-3.5" />
+   302→              Кнопка «Товар»
+   303→            </div>
+   304→            <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+   305→              <div className="grid gap-1.5">
+   306→                <Label htmlFor="bp-product-label" className="text-xs">
+   307→                  Текст кнопки
+   308→                </Label>
+   309→                <Input
+   310→                  id="bp-product-label"
+   311→                  value={form.productLabel}
+   312→                  onChange={(e) => setField('productLabel', e.target.value)}
+   313→                  placeholder="Товар"
+   314→                />
+   315→              </div>
+   316→              <div className="grid gap-1.5">
+   317→                <Label htmlFor="bp-product-url" className="text-xs">
+   318→                  URL-шаблон
+   319→                </Label>
+   320→                <Input
+   321→                  id="bp-product-url"
+   322→                  value={form.productUrl}
+   323→                  onChange={(e) => setField('productUrl', e.target.value)}
+   324→                  placeholder="https://example.com/product?sku={{sku}}"
+   325→                  className="font-mono text-[12px]"
+   326→                  required
+   327→                />
+   328→              </div>
+   329→            </div>
+   330→          </div>
+   331→
+   332→          {/* Category button */}
+   333→          <div className="grid gap-3 rounded-md border bg-muted/30 p-3">
+   334→            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+   335→              <Link2 className="size-3.5" />
+   336→              Кнопка «Категория»
+   337→            </div>
+   338→            <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+   339→              <div className="grid gap-1.5">
+   340→                <Label htmlFor="bp-category-label" className="text-xs">
+   341→                  Текст кнопки
+   342→                </Label>
+   343→                <Input
+   344→                  id="bp-category-label"
+   345→                  value={form.categoryLabel}
+   346→                  onChange={(e) => setField('categoryLabel', e.target.value)}
+   347→                  placeholder="Категория"
+   348→                />
+   349→              </div>
+   350→              <div className="grid gap-1.5">
+   351→                <Label htmlFor="bp-category-url" className="text-xs">
+   352→                  URL-шаблон
+   353→                </Label>
+   354→                <Input
+   355→                  id="bp-category-url"
+   356→                  value={form.categoryUrl}
+   357→                  onChange={(e) => setField('categoryUrl', e.target.value)}
+   358→                  placeholder="https://example.com/category/{{categorySlug}}"
+   359→                  className="font-mono text-[12px]"
+   360→                  required
+   361→                />
+   362→              </div>
+   363→            </div>
+   364→          </div>
+   365→
+   366→          {/* Variables hint */}
+   367→          <div className="grid gap-2">
+   368→            <div className="text-xs font-medium text-muted-foreground">
+   369→              Доступные переменные
+   370→            </div>
+   371→            <div className="flex flex-wrap gap-1.5">
+   372→              {VARIABLES.map((v) => (
+   373→                <code
+   374→                  key={v.token}
+   375→                  title={v.label}
+   376→                  className="inline-flex items-center rounded-md border border-input bg-background px-2 py-1 font-mono text-[11px] text-muted-foreground"
+   377→                >
+   378→                  {v.token}
+   379→                  <span className="ml-1.5 text-[10px] text-muted-foreground/70">
+   380→                    {v.label}
+   381→                  </span>
+   382→                </code>
+   383→              ))}
+   384→            </div>
+   385→          </div>
+   386→
+   387→          {/* Platform examples */}
+   388→          <div className="grid gap-2">
+   389→            <div className="text-xs font-medium text-muted-foreground">
+   390→              Примеры для{' '}
+   391→              <span className="font-semibold text-foreground">{meta.label}</span>{' '}
+   392→              — кликните, чтобы подставить
+   393→            </div>
+   394→            <div className="grid gap-1.5">
+   395→              {EXAMPLES.filter((ex) => ex.platform === form.platform).map(
+   396→                (ex) => (
+   397→                  <button
+   398→                    key={`${ex.kind}-${ex.platform}`}
+   399→                    type="button"
+   400→                    onClick={() => applyExample(ex.kind, ex.url)}
+   401→                    className="group flex items-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-left transition-colors hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+   402→                  >
+   403→                    <Badge
+   404→                      variant="outline"
+   405→                      className={cn(
+   406→                        'shrink-0 px-1.5 text-[10px]',
+   407→                        ex.kind === 'product'
+   408→                          ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-300'
+   409→                          : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300',
+   410→                      )}
+   411→                    >
+   412→                      {ex.kind === 'product' ? 'Товар' : 'Категория'}
+   413→                    </Badge>
+   414→                    <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/80 group-hover:text-teal-700 dark:group-hover:text-teal-300">
+   415→                      {ex.url}
+   416→                    </code>
+   417→                  </button>
+   418→                ),
+   419→              )}
+   420→            </div>
+   421→          </div>
+   422→
+   423→          {/* Live preview */}
+   424→          <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+   425→            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+   426→              <Eye className="size-3" />
+   427→              Превью кнопок
+   428→            </div>
+   429→            <div className="flex flex-wrap gap-2">
+   430→              <button
+   431→                type="button"
+   432→                tabIndex={-1}
+   433→                className={cn(
+   434→                  'inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors',
+   435→                  meta.pillClass,
+   436→                )}
+   437→              >
+   438→                <ExternalLink className="size-3.5" />
+   439→                {form.productLabel || 'Товар'}
+   440→              </button>
+   441→              <button
+   442→                type="button"
+   443→                tabIndex={-1}
+   444→                className={cn(
+   445→                  'inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors',
+   446→                  meta.pillClass,
+   447→                )}
+   448→              >
+   449→                <Link2 className="size-3.5" />
+   450→                {form.categoryLabel || 'Категория'}
+   451→              </button>
+   452→            </div>
+   453→            <div className="grid gap-1 text-[11px] text-muted-foreground">
+   454→              <div className="truncate">
+   455→                <span className="font-medium text-foreground/70">Товар:</span>{' '}
+   456→                <code className="font-mono">
+   457→                  {productPreviewUrl || (
+   458→                    <span className="italic text-muted-foreground/70">
+   459→                      (шаблон пуст)
+   460→                    </span>
+   461→                  )}
+   462→                </code>
+   463→              </div>
+   464→              <div className="truncate">
+   465→                <span className="font-medium text-foreground/70">
+   466→                  Категория:
+   467→                </span>{' '}
+   468→                <code className="font-mono">
+   469→                  {categoryPreviewUrl || (
+   470→                    <span className="italic text-muted-foreground/70">
+   471→                      (шаблон пуст)
+   472→                    </span>
+   473→                  )}
+   474→                </code>
+   475→              </div>
+   476→            </div>
+   477→          </div>
+   478→
+   479→          <DialogFooter>
+   480→            <Button
+   481→              type="button"
+   482→              variant="outline"
+   483→              onClick={() => onOpenChange(false)}
+   484→            >
+   485→              Отмена
+   486→            </Button>
+   487→            <Button
+   488→              type="submit"
+   489→              disabled={submitting}
+   490→              className="bg-teal-700 text-white hover:bg-teal-700/90"
+   491→            >
+   492→              {submitting ? 'Сохранение…' : isCreate ? 'Создать' : 'Сохранить'}
+   493→            </Button>
+   494→          </DialogFooter>
+   495→        </form>
+   496→      </DialogContent>
+   497→    </Dialog>
+   498→  )
+   499→}
+   500→
+   501→function ButtonPresetCard({
+   502→  preset,
+   503→  onEdit,
+   504→  onDelete,
+   505→}: {
+   506→  preset: ButtonPreset
+   507→  onEdit: () => void
+   508→  onDelete: () => void
+   509→}) {
+   510→  const meta = getPlatformMeta(preset.platform)
+   511→  const Icon = meta.icon
+   512→
+   513→  return (
+   514→    <Card className="gap-3">
+   515→      <CardHeader>
+   516→        <div className="flex items-start justify-between gap-3">
+   517→          <div className="min-w-0 flex-1">
+   518→            <CardTitle className="truncate text-base">{preset.name}</CardTitle>
+   519→            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+   520→              <Badge variant="outline" className={meta.badgeClass}>
+   521→                <Icon className="size-3" />
+   522→                {meta.label}
+   523→              </Badge>
+   524→              {preset.active ? (
+   525→                <Badge
+   526→                  variant="outline"
+   527→                  className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300"
+   528→                >
+   529→                  активен
+   530→                </Badge>
+   531→              ) : (
+   532→                <Badge variant="secondary" className="text-muted-foreground">
+   533→                  выключен
+   534→                </Badge>
+   535→              )}
+   536→            </div>
+   537→          </div>
+   538→        </div>
+   539→      </CardHeader>
+   540→
+   541→      <CardContent className="grid gap-3">
+   542→        {/* Product button preview */}
+   543→        <div className="grid gap-1.5">
+   544→          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   545→            <ExternalLink className="size-3" />
+   546→            Кнопка «Товар»
+   547→          </div>
+   548→          <div className="flex items-center gap-2">
+   549→            <span
+   550→              className={cn(
+   551→                'inline-flex h-7 shrink-0 items-center rounded-md border px-2.5 text-xs font-medium',
+   552→                meta.pillClass,
+   553→              )}
+   554→            >
+   555→              {preset.productLabel || 'Товар'}
+   556→            </span>
+   557→            <code className="min-w-0 flex-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+   558→              {preset.productUrl}
+   559→            </code>
+   560→          </div>
+   561→        </div>
+   562→
+   563→        {/* Category button preview */}
+   564→        <div className="grid gap-1.5">
+   565→          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+   566→            <Link2 className="size-3" />
+   567→            Кнопка «Категория»
+   568→          </div>
+   569→          <div className="flex items-center gap-2">
+   570→            <span
+   571→              className={cn(
+   572→                'inline-flex h-7 shrink-0 items-center rounded-md border px-2.5 text-xs font-medium',
+   573→                meta.pillClass,
+   574→              )}
+   575→            >
+   576→              {preset.categoryLabel || 'Категория'}
+   577→            </span>
+   578→            <code className="min-w-0 flex-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+   579→              {preset.categoryUrl}
+   580→            </code>
+   581→          </div>
+   582→        </div>
+   583→      </CardContent>
+   584→
+   585→      <CardFooter className="gap-2">
+   586→        <Button size="sm" variant="outline" onClick={onEdit}>
+   587→          <Pencil className="size-3.5" />
+   588→          Редактировать
+   589→        </Button>
+   590→        <Button
+   591→          size="sm"
+   592→          variant="ghost"
+   593→          className="text-destructive hover:text-destructive"
+   594→          onClick={onDelete}
+   595→        >
+   596→          <Trash2 className="size-3.5" />
+   597→          Удалить
+   598→        </Button>
+   599→      </CardFooter>
+   600→    </Card>
+   601→  )
+   602→}
+   603→
+   604→export function ButtonsSection() {
+   605→  const queryClient = useQueryClient()
+   606→
+   607→  const { data, isLoading, isError, refetch } = useQuery<ButtonPreset[]>({
+   608→    queryKey: ['button-presets'],
+   609→    queryFn: async () => {
+   610→      const res = await fetch('/api/button-presets')
+   611→      if (!res.ok) throw new Error('Не удалось загрузить пресеты кнопок')
+   612→      return (await res.json()) as ButtonPreset[]
+   613→    },
+   614→  })
+   615→
+   616→  const [dialogOpen, setDialogOpen] = React.useState(false)
+   617→  const [editTarget, setEditTarget] = React.useState<ButtonPreset | null>(null)
+   618→  const [deleteTarget, setDeleteTarget] = React.useState<ButtonPreset | null>(
+   619→    null,
+   620→  )
+   621→
+   622→  const createMutation = useMutation({
+   623→    mutationFn: async (values: FormValues) => {
+   624→      const res = await fetch('/api/button-presets', {
+   625→        method: 'POST',
+   626→        headers: { 'Content-Type': 'application/json' },
+   627→        body: JSON.stringify(values),
+   628→      })
+   629→      if (!res.ok) {
+   630→        const j = await res.json().catch(() => ({}))
+   631→        throw new Error(j?.error || 'Ошибка создания')
+   632→      }
+   633→      return res.json()
+   634→    },
+   635→    onSuccess: () => {
+   636→      toast.success('Пресет создан')
+   637→      queryClient.invalidateQueries({ queryKey: ['button-presets'] })
+   638→      setDialogOpen(false)
+   639→    },
+   640→    onError: (e: Error) => toast.error(e.message),
+   641→  })
+   642→
+   643→  const updateMutation = useMutation({
+   644→    mutationFn: async (vars: { id: string; values: FormValues }) => {
+   645→      const res = await fetch(`/api/button-presets/${vars.id}`, {
+   646→        method: 'PUT',
+   647→        headers: { 'Content-Type': 'application/json' },
+   648→        body: JSON.stringify(vars.values),
+   649→      })
+   650→      if (!res.ok) {
+   651→        const j = await res.json().catch(() => ({}))
+   652→        throw new Error(j?.error || 'Ошибка обновления')
+   653→      }
+   654→      return res.json()
+   655→    },
+   656→    onSuccess: () => {
+   657→      toast.success('Пресет обновлён')
+   658→      queryClient.invalidateQueries({ queryKey: ['button-presets'] })
+   659→      setDialogOpen(false)
+   660→      setEditTarget(null)
+   661→    },
+   662→    onError: (e: Error) => toast.error(e.message),
+   663→  })
+   664→
+   665→  const deleteMutation = useMutation({
+   666→    mutationFn: async (id: string) => {
+   667→      const res = await fetch(`/api/button-presets/${id}`, {
+   668→        method: 'DELETE',
+   669→      })
+   670→      if (!res.ok) throw new Error('Не удалось удалить')
+   671→      return res.json()
+   672→    },
+   673→    onSuccess: () => {
+   674→      toast.success('Пресет удалён')
+   675→      queryClient.invalidateQueries({ queryKey: ['button-presets'] })
+   676→      setDeleteTarget(null)
+   677→    },
+   678→    onError: (e: Error) => toast.error(e.message),
+   679→  })
+   680→
+   681→  const submitting = createMutation.isPending || updateMutation.isPending
+   682→
+   683→  function openCreate() {
+   684→    setEditTarget(null)
+   685→    setDialogOpen(true)
+   686→  }
+   687→
+   688→  function openEdit(preset: ButtonPreset) {
+   689→    setEditTarget(preset)
+   690→    setDialogOpen(true)
+   691→  }
+   692→
+   693→  function handleSubmit(values: FormValues) {
+   694→    if (editTarget) {
+   695→      updateMutation.mutate({ id: editTarget.id, values })
+   696→    } else {
+   697→      createMutation.mutate(values)
+   698→    }
+   699→  }
+   700→
+   701→  return (
+   702→    <div className="grid gap-4">
+   703→      <Card className="bg-teal-50/40 dark:bg-teal-950/10">
+   704→        <CardHeader>
+   705→          <CardTitle className="flex items-center gap-2 text-base">
+   706→            <MousePointerClick className="size-4 text-teal-700 dark:text-teal-300" />
+   707→            Кнопки в постах
+   708→          </CardTitle>
+   709→          <CardDescription>
+   710→            Пресет кнопок описывает две inline-кнопки — «Товар» и «Категория» —
+   711→            которые автоматически добавляются к сообщению при создании поста из
+   712→            карточки товара. URL-шаблоны содержат переменные вида{' '}
+   713→            <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+   714→              {'{{sku}}'}
+   715→            </code>
+   716→            , которые подставляются из данных товара WordPress. Создайте по
+   717→            одному пресету для каждой площадки (Telegram и MAX).
+   718→          </CardDescription>
+   719→        </CardHeader>
+   720→      </Card>
+   721→
+   722→      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+   723→        <div className="text-sm text-muted-foreground">
+   724→          {data && data.length > 0
+   725→            ? `Всего пресетов: ${data.length}`
+   726→            : 'Создайте первый пресет кнопок'}
+   727→        </div>
+   728→        <Button
+   729→          onClick={openCreate}
+   730→          className="bg-teal-700 text-white hover:bg-teal-700/90"
+   731→        >
+   732→          <Plus className="size-4" />
+   733→          Новый пресет
+   734→        </Button>
+   735→      </div>
+   736→
+   737→      {isLoading ? (
+   738→        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+   739→          {Array.from({ length: 2 }).map((_, i) => (
+   740→            <Skeleton key={i} className="h-56 w-full" />
+   741→          ))}
+   742→        </div>
+   743→      ) : isError ? (
+   744→        <Card>
+   745→          <CardContent className="py-6 text-sm text-destructive">
+   746→            Не удалось загрузить пресеты кнопок.{' '}
+   747→            <Button
+   748→              variant="link"
+   749→              className="h-auto p-0"
+   750→              onClick={() => refetch()}
+   751→            >
+   752→              Повторить
+   753→            </Button>
+   754→          </CardContent>
+   755→        </Card>
+   756→      ) : !data || data.length === 0 ? (
+   757→        <Card className="border-dashed">
+   758→          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+   759→            <div className="rounded-full bg-muted p-3">
+   760→              <MousePointerClick className="size-5 text-muted-foreground" />
+   761→            </div>
+   762→            <div>
+   763→              <div className="font-medium">Пресетов кнопок пока нет</div>
+   764→              <div className="text-sm text-muted-foreground">
+   765→                Создайте первый пресет — например, кнопки для Telegram-бота
+   766→                магазина.
+   767→              </div>
+   768→            </div>
+   769→            <Button
+   770→              onClick={openCreate}
+   771→              className="bg-teal-700 text-white hover:bg-teal-700/90"
+   772→            >
+   773→              <Plus className="size-4" />
+   774→              Новый пресет
+   775→            </Button>
+   776→          </CardContent>
+   777→        </Card>
+   778→      ) : (
+   779→        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+   780→          {data.map((preset) => (
+   781→            <ButtonPresetCard
+   782→              key={preset.id}
+   783→              preset={preset}
+   784→              onEdit={() => openEdit(preset)}
+   785→              onDelete={() => setDeleteTarget(preset)}
+   786→            />
+   787→          ))}
+   788→        </div>
+   789→      )}
+   790→
+   791→      <ButtonPresetFormDialog
+   792→        open={dialogOpen}
+   793→        onOpenChange={(o) => {
+   794→          setDialogOpen(o)
+   795→          if (!o) setEditTarget(null)
+   796→        }}
+   797→        mode={editTarget ? 'edit' : 'create'}
+   798→        initial={editTarget}
+   799→        onSubmit={handleSubmit}
+   800→        submitting={submitting}
+   801→      />
+   802→
+   803→      <AlertDialog
+   804→        open={!!deleteTarget}
+   805→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   806→      >
+   807→        <AlertDialogContent>
+   808→          <AlertDialogHeader>
+   809→            <AlertDialogTitle>Удалить пресет кнопок?</AlertDialogTitle>
+   810→            <AlertDialogDescription>
+   811→              {deleteTarget?.name ? (
+   812→                <>
+   813→                  Пресет «{deleteTarget.name}» будет удалён без возможности
+   814→                  восстановления. Кнопки перестанут добавляться к новым постам
+   815→                  этой площадки.
+   816→                </>
+   817→              ) : (
+   818→                'Это действие нельзя отменить.'
+   819→              )}
+   820→            </AlertDialogDescription>
+   821→          </AlertDialogHeader>
+   822→          <AlertDialogFooter>
+   823→            <AlertDialogCancel>Отмена</AlertDialogCancel>
+   824→            <AlertDialogAction
+   825→              className="bg-destructive text-white hover:bg-destructive/90"
+   826→              disabled={deleteMutation.isPending}
+   827→              onClick={(e) => {
+   828→                e.preventDefault()
+   829→                if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+   830→              }}
+   831→            >
+   832→              {deleteMutation.isPending ? 'Удаление…' : 'Удалить'}
+   833→            </AlertDialogAction>
+   834→          </AlertDialogFooter>
+   835→        </AlertDialogContent>
+   836→      </AlertDialog>
+   837→    </div>
+   838→  )
+   839→}
+   840→
+   841→export default ButtonsSection
+   842→
