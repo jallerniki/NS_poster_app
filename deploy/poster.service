@@ -1,0 +1,37 @@
+# systemd unit for NS Poster (Next.js standalone server + in-process worker).
+#
+# Install:
+#   1) Edit the paths/user below to match your server (APP_DIR, USER, NODE_BIN).
+#   2) sudo cp deploy/poster.service /etc/systemd/system/poster.service
+#   3) sudo systemctl daemon-reload
+#   4) sudo systemctl enable --now poster
+#   5) Check: sudo systemctl status poster  |  sudo journalctl -u poster -f
+#
+# Logs (incl. worker ticks) →  sudo journalctl -u poster -f
+
+[Unit]
+Description=NS Poster — scheduled posting (Next.js standalone + worker)
+After=network.target
+
+[Service]
+Type=simple
+
+# >>> EDIT THESE TO MATCH YOUR SERVER <<<
+User=z
+WorkingDirectory=/home/z/my-project/.next/standalone
+EnvironmentFile=/home/z/my-project/.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+# Node binary path (find with: which node)
+ExecStart=/usr/bin/node /home/z/my-project/.next/standalone/server.js
+# >>> END EDIT <<<
+
+Restart=on-failure
+RestartSec=5
+# Graceful shutdown
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
